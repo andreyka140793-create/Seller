@@ -1,0 +1,12 @@
+fastapi==0.111.0
+uvicorn==0.30.1
+sqlalchemy==2.0.30
+psycopg2-binary==2.9.9
+pydantic==2.7.4
+python-dotenv==1.0.1
+pandas==2.2.2
+openpyxl==3.1.4
+google-genai==0.1.1
+python-multipart==0.0.9
+aiogram==3.10.0
+aiohttp==3.9.5
