@@ -1,18 +1,32 @@
+import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
 from database import engine, Base, get_db
 import models
 from excel_processor import process_excel_file
 from config import PurchasingConfig
+from bot import get_bot_and_dp
 
-# Создание таблиц при запуске
-Base.metadata.create_all(bind=engine)
+# Асинхронный контекст управления запуском и остановкой бота
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    bot, dp = get_bot_and_dp()
+    bot_task = None
+    if bot and dp:
+        # Запускаем поллинг Telegram-бота в фоновой задаче
+        bot_task = asyncio.create_task(dp.start_polling(bot))
+        print("🤖 Telegram-бот успешно запущен в фоновом режиме")
+    yield
+    if bot_task:
+        bot_task.cancel()
 
-app = FastAPI(title="Trade Agent API")
+app = FastAPI(title="Trade Agent API", lifespan=lifespan)
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "Сервер Trade Agent работает"}
+    return {"status": "ok", "message": "Сервер и Telegram-бот Trade Agent работают"}
 
 @app.post("/upload-price/")
 async def upload_price(
@@ -25,7 +39,6 @@ async def upload_price(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    # Нахождение или создание пользователя
     user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
     if not user:
         user = models.User(telegram_id=telegram_id)
