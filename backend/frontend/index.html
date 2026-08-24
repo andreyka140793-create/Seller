@@ -142,7 +142,12 @@
             }
 
             try {
-                const response = await fetch(`${API_BASE_URL}/api/upload/${uploadId}`);
+
+const response = await fetch(`${API_BASE_URL}/api/upload/${uploadId}`, {
+    headers: {
+        'X-Telegram-Init-Data': tg.initData
+    }
+});
                 if (!response.ok) throw new Error("Ошибка сети");
                 
                 const data = await response.json();
