@@ -158,8 +158,6 @@ def get_user_history_api(telegram_id: int, db: Session = Depends(get_db)):
         for u in uploads
     ]
 
-# Обновить эндпоинт в backend/main.py:
-
 @app.get("/api/upload/{upload_id}")
 def get_upload_details_api(
     upload_id: int, 
