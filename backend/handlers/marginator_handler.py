@@ -14,7 +14,8 @@ from aiogram.fsm.context import FSMContext
 
 from states.marginator_states import CalcState
 from keyboards.marginator_keyboards import get_params_setup_keyboard, get_skip_keyboard
-
+from database import SessionLocal
+from services.marginator.db_service import MarginatorDBService
 # --- Переход к выборке параметров после успешного парсинга таблицы ---
 
 async def prompt_parameter_setup(message: Message, state: FSMContext):
@@ -148,7 +149,15 @@ async def execute_calculation(message: Message, state: FSMContext):
             continue
 
     df_results = pd.DataFrame(results)
-    
+    # Сохранение в БД
+with SessionLocal() as db:
+    MarginatorDBService.save_calculation_results(
+        db=db,
+        telegram_id=message.from_user.id,
+        filename=file_name,
+        calc_mode=data.get("calc_mode", "marketplace"),
+        df_results=df_results
+    )
     # 3. Генерация .xlsx отчета с цветовой разметкой
     excel_bytes = ExcelExporterService.export_results_to_excel(df_results)
     
