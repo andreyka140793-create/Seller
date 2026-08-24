@@ -38,6 +38,10 @@ app = FastAPI(title="Trade Agent API", lifespan=lifespan)
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
 if os.path.exists(frontend_path):
     app.mount("/app", StaticFiles(directory=frontend_path, html=True), name="frontend")
+# Монтируем папку frontend для раздачи index.html
+frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
+if os.path.exists(frontend_path):
+    app.mount("/app", StaticFiles(directory=frontend_path, html=True), name="frontend")
 @app.get("/")
 def root():
     return {"status": "ok", "message": "Сервер и Telegram-бот Trade Agent работают"}
