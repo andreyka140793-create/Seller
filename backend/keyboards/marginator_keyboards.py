@@ -43,3 +43,22 @@ def get_history_keyboard(uploads: list[models.PriceUpload]) -> InlineKeyboardMar
             )
         ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+import os
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+
+def get_webapp_keyboard(upload_id: int) -> InlineKeyboardMarkup:
+    """Генерирует кнопку открытия Telegram Mini App для выбранной партии."""
+    base_url = os.getenv("WEB_APP_URL", "https://andreyka140793-create.github.io/Seller")
+    web_app_url = f"{base_url}?upload_id={upload_id}"
+    
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📊 Открыть интерактивный отчет (Mini App)",
+                    web_app=WebAppInfo(url=web_app_url)
+                )
+            ]
+        ]
+    )
