@@ -22,6 +22,24 @@ class MarginatorDBService:
             db.commit()
             db.refresh(user)
 
+    @staticmethod
+    def get_user_history(db: Session, telegram_id: int, limit: int = 5) -> list[models.PriceUpload]:
+        """Возвращает последние N загрузок пользователя."""
+        user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+        if not user:
+            return []
+        return (
+            db.query(models.PriceUpload)
+            .filter(models.PriceUpload.user_id == user.id)
+            .order_by(models.PriceUpload.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+    @staticmethod
+    def get_upload_with_items(db: Session, upload_id: int) -> models.PriceUpload | None:
+        """Получает загрузку со всеми расчитанными позициями."""
+        return db.query(models.PriceUpload).filter(models.PriceUpload.id == upload_id).first()
         # 2. Создание записи о загрузке
         total_revenue = float(df_results["Выручка, ₽"].sum())
         total_profit = float(df_results["Чистая прибыль, ₽"].sum())
