@@ -9,8 +9,22 @@ from excel_processor import process_excel_file
 from config import PurchasingConfig
 from bot import get_bot_and_dp
 from handlers.marginator_handler import marginator_router
-
+from fastapi import Header
+from services.marginator.auth import verify_telegram_init_data
 @asynccontextmanager
+
+async def get_current_tg_user(x_telegram_init_data: str = Header(None)) -> dict:
+    """Зависимость FastAPI для проверки прав доступа из Mini App."""
+    if not x_telegram_init_data:
+        raise HTTPException(status_code=401, detail="Отсутствует заголовок авторизации Telegram")
+
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    validated_data = verify_telegram_init_data(x_telegram_init_data, bot_token)
+
+    if not validated_data:
+        raise HTTPException(status_code=403, detail="Недействительная подпись initData")
+
+    return validated_data
 async def lifespan(app: FastAPI):
     # 1. Инициализация таблиц БД
     Base.metadata.create_all(bind=engine)
@@ -144,13 +158,18 @@ def get_user_history_api(telegram_id: int, db: Session = Depends(get_db)):
         for u in uploads
     ]
 
+# Обновить эндпоинт в backend/main.py:
+
 @app.get("/api/upload/{upload_id}")
-def get_upload_details_api(upload_id: int, db: Session = Depends(get_db)):
-    """Возвращает детальную аналитику по конкретной партии для построения графиков."""
+def get_upload_details_api(
+    upload_id: int, 
+    db: Session = Depends(get_db),
+    tg_data: dict = Depends(get_current_tg_user) # <- Добавлена проверка
+):
     upload = db.query(models.PriceUpload).filter(models.PriceUpload.id == upload_id).first()
     if not upload:
         raise HTTPException(status_code=404, detail="Расчет не найден")
-        
+
     return {
         "id": upload.id,
         "filename": upload.filename,
