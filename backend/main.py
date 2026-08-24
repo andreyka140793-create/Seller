@@ -7,7 +7,11 @@ import models
 from excel_processor import process_excel_file
 from config import PurchasingConfig
 from bot import get_bot_and_dp
+from aiogram import Dispatcher
+from handlers.marginator_handler import marginator_router
 
+# ... инициализация бота и диспетчера
+dp.include_router(marginator_router)
 # Асинхронный контекст управления запуском и остановкой бота
 @asynccontextmanager
 async def lifespan(app: FastAPI):
