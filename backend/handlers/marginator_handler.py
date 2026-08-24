@@ -8,7 +8,106 @@ from services.marginator.parser import ExcelParserService
 from aiogram.types import BufferedInputFile
 from services.marginator.calculators import MarketplaceCalculator, MarketplaceParams, BaseItem
 from services.marginator.exporter import ExcelExporterService
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery
+from aiogram.fsm.context import FSMContext
 
+from states.marginator_states import CalcState
+from keyboards.marginator_keyboards import get_params_setup_keyboard, get_skip_keyboard
+
+# --- Переход к выборке параметров после успешного парсинга таблицы ---
+
+async def prompt_parameter_setup(message: Message, state: FSMContext):
+    """Вызывается после завершения сканирования файла Gemini."""
+    await message.answer(
+        "⚙️ **Настройка финансовых параметров**\n\n"
+        "Вы можете использовать стандартные параметры или задать свои значение вручную:",
+        reply_markup=get_params_setup_keyboard(),
+        parse_mode="Markdown"
+    )
+    await state.set_state(CalcState.input_commission)
+
+# --- Быстрый выбор по умолчанию ---
+
+@marginator_router.callback_query(CalcState.input_commission, F.data == "params_default")
+async def apply_default_params(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(
+        commission_percent=15.0,
+        logistics_cost=120.0,
+        tax_rate_percent=6.0
+    )
+    await callback.message.edit_text(
+        "✅ **Параметры установлены:**\n"
+        "• Комиссия: `15%`\n"
+        "• Логистика: `120 ₽/ед.`\n"
+        "• Налог (УСН): `6%`\n\n"
+        "Отправьте `/run` для запуска расчета.",
+        parse_mode="Markdown"
+    )
+    await state.set_state(CalcState.confirm_params)
+
+# --- Ручной пошаговый ввод ---
+
+@marginator_router.callback_query(CalcState.input_commission, F.data == "params_custom")
+async def start_custom_params(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        "1️⃣ **Введите комиссию маркетплейса в %** (например, `12.5`):",
+        reply_markup=get_skip_keyboard(),
+        parse_mode="Markdown"
+    )
+
+@marginator_router.message(CalcState.input_commission)
+async def process_commission_input(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(',', '.'))
+        if not (0 <= val <= 100):
+            raise ValueError
+        await state.update_data(commission_percent=val)
+        await message.answer(
+            "2️⃣ **Введите среднюю логистику на единицу товара в ₽** (например, `80`):",
+            reply_markup=get_skip_keyboard(),
+            parse_mode="Markdown"
+        )
+        await state.set_state(CalcState.input_logistics)
+    except ValueError:
+        await message.answer("❌ Введите корректное число от 0 до 100.")
+
+@marginator_router.message(CalcState.input_logistics)
+async def process_logistics_input(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(',', '.'))
+        if val < 0:
+            raise ValueError
+        await state.update_data(logistics_cost=val)
+        await message.answer(
+            "3️⃣ **Введите ставку налога в %** (например, `6` для УСН 6% или `15` для УСН 15%):",
+            reply_markup=get_skip_keyboard(),
+            parse_mode="Markdown"
+        )
+        await state.set_state(CalcState.input_tax)
+    except ValueError:
+        await message.answer("❌ Введите неотрицательное число.")
+
+@marginator_router.message(CalcState.input_tax)
+async def process_tax_input(message: Message, state: FSMContext):
+    try:
+        val = float(message.text.replace(',', '.'))
+        if not (0 <= val <= 100):
+            raise ValueError
+        await state.update_data(tax_rate_percent=val)
+        
+        data = await state.get_data()
+        await message.answer(
+            f"✅ **Все параметры сохранены!**\n\n"
+            f"• Комиссия: `{data.get('commission_percent')}%`\n"
+            f"• Логистика: `{data.get('logistics_cost')} ₽`\n"
+            f"• Налог: `{data.get('tax_rate_percent')}%`\n\n"
+            f"Отправьте `/run` для запуска генерации отчета.",
+            parse_mode="Markdown"
+        )
+        await state.set_state(CalcState.confirm_params)
+    except ValueError:
+        await message.answer("❌ Введите корректную процентную ставку.")
 @marginator_router.message(CalcState.input_params, F.text == "/run")
 async def execute_calculation(message: Message, state: FSMContext):
     data = await state.get_data()
