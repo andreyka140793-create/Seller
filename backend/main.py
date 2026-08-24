@@ -11,6 +11,7 @@ from bot import get_bot_and_dp
 from handlers.marginator_handler import marginator_router
 from fastapi import Header
 from services.marginator.auth import verify_telegram_init_data
+from handlers.marginator_handler import marginator_router
 @asynccontextmanager
 
 async def get_current_tg_user(x_telegram_init_data: str = Header(None)) -> dict:
