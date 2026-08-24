@@ -1,0 +1,89 @@
+from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException
+from sqlalchemy.orm import Session
+from database import engine, Base, get_db
+import models
+from excel_processor import process_excel_file
+from config import PurchasingConfig
+
+# Создание таблиц при запуске
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="Trade Agent API")
+
+@app.get("/")
+def root():
+    return {"status": "ok", "message": "Сервер Trade Agent работает"}
+
+@app.post("/upload-price/")
+async def upload_price(
+    telegram_id: int = Form(...),
+    logistics_cost: float = Form(PurchasingConfig.DEFAULT_LOGISTICS_RUB),
+    packaging_cost: float = Form(PurchasingConfig.DEFAULT_PACKAGING_RUB),
+    mp_commission_pct: float = Form(PurchasingConfig.DEFAULT_MP_COMMISSION_PCT),
+    tax_pct: float = Form(PurchasingConfig.DEFAULT_TAX_PCT),
+    markup_pct: float = Form(PurchasingConfig.DEFAULT_MARKUP_PCT),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    # Нахождение или создание пользователя
+    user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+    if not user:
+        user = models.User(telegram_id=telegram_id)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    upload_record = models.PriceUpload(
+        user_id=user.id,
+        filename=file.filename,
+        status="processing"
+    )
+    db.add(upload_record)
+    db.commit()
+    db.refresh(upload_record)
+
+    file_bytes = await file.read()
+
+    try:
+        items = process_excel_file(
+            file_bytes=file_bytes,
+            filename=file.filename,
+            logistics_cost=logistics_cost,
+            packaging_cost=packaging_cost,
+            mp_commission_pct=mp_commission_pct,
+            tax_pct=tax_pct,
+            markup_pct=markup_pct
+        )
+
+        db_items = [
+            models.AnalyzedItem(
+                upload_id=upload_record.id,
+                title=item["title"],
+                sku=item["sku"],
+                buy_price=item["buy_price"],
+                est_sell_price=item["est_sell_price"],
+                net_profit=item["net_profit"],
+                roi_pct=item["roi_pct"],
+                is_profitable=item["is_profitable"]
+            )
+            for item in items
+        ]
+
+        db.bulk_save_objects(db_items)
+        upload_record.status = "completed"
+        db.commit()
+
+        profitable_items = [i for i in items if i["is_profitable"]]
+
+        return {
+            "status": "success",
+            "upload_id": upload_record.id,
+            "total_items_processed": len(items),
+            "profitable_items_count": len(profitable_items),
+            "top_profitable_items": profitable_items[:10]
+        }
+
+    except Exception as e:
+        upload_record.status = "error"
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Ошибка обработки: {str(e)}")
