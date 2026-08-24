@@ -26,3 +26,20 @@ def get_skip_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Пропустить (0 ₽ / 0%)", callback_data="skip_param")]
         ]
     )
+# Добавить в конец файла backend/keyboards/marginator_keyboards.py:
+
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import models
+
+def get_history_keyboard(uploads: list[models.PriceUpload]) -> InlineKeyboardMarkup:
+    buttons = []
+    for up in uploads:
+        date_str = up.created_at.strftime("%d.%m %H:%M")
+        btn_text = f"📄 {up.filename[:15]}... ({date_str}) | {up.total_profit:,.0f} ₽"
+        buttons.append([
+            InlineKeyboardButton(
+                text=btn_text,
+                callback_data=f"download_upload_{up.id}"
+            )
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
