@@ -10,3 +10,6 @@ google-genai==0.1.1
 python-multipart==0.0.9
 aiogram==3.10.0
 aiohttp==3.9.5
+pandas>=2.2.0
+openpyxl>=3.1.2
+google-genai>=0.1.0
