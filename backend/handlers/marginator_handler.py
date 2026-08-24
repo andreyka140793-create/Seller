@@ -290,3 +290,30 @@ async def download_archived_report(callback: CallbackQuery):
             ),
             parse_mode="Markdown"
         )
+# Добавить в конец файла backend/handlers/marginator_handler.py:
+
+@marginator_router.message(Command("start"))
+async def cmd_start(message: Message):
+    await message.answer(
+        "👋 **Привет! Я бот-маржинатор Trade Agent.**\n\n"
+        "Я умею рассчитывать чистую прибыль, маржу и ROI для товаров на маркетплейсах и B2B.\n\n"
+        "📌 **Как со мной работать:**\n"
+        "1. Отправьте мне Excel-файл (`.xlsx` или `.xls`) с прайс-листом.\n"
+        "2. Выберите режим расчета и задайте финансовые параметры.\n"
+        "3. Получите готовый Excel-отчет и интерактивный дашборд.\n\n"
+        "Команды:\n"
+        "• `/history` — Посмотреть прошлые расчеты\n"
+        "• `/help` — Инструкция по формату файлов",
+        parse_mode="Markdown"
+    )
+
+@marginator_router.message(Command("help"))
+async def cmd_help(message: Message):
+    await message.answer(
+        "📖 **Инструкция по загрузке прайс-листов:**\n\n"
+        "• Бот автоматически распознает столбцы с помощью AI (Gemini), поэтому строгий шаблон не требуется.\n"
+        "• Желательно, чтобы в таблице были колонки с **названием товара** и **закупочной ценой**.\n"
+        "• Если в файле несколько листов, обработан будет первый лист.\n"
+        "• Поддерживаемые форматы: `.xlsx`, `.xls`.",
+        parse_mode="Markdown"
+    )
