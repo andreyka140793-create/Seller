@@ -2,49 +2,33 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
+
 from database import engine, Base, get_db
 import models
 from excel_processor import process_excel_file
 from config import PurchasingConfig
 from bot import get_bot_and_dp
-from aiogram import Dispatcher
 from handlers.marginator_handler import marginator_router
-from services.marginator.analytics import AnalyticsService
 
-# ... внутри execute_calculation после формирования df_results:
-
-df_results = pd.DataFrame(results)
-
-# 1. Генерируем аналитическую карточку для чата
-summary = AnalyticsService.generate_summary(df_results)
-summary_text = AnalyticsService.format_summary_message(summary)
-
-# 2. Формируем Excel файл
-excel_bytes = ExcelExporterService.export_results_to_excel(df_results)
-document = BufferedInputFile(excel_bytes, filename=f"Marginator_{file_name}")
-
-# 3. Отправка результатов
-await status_msg.delete()
-await message.answer(summary_text, parse_mode="Markdown")
-await message.answer_document(
-    document=document,
-    caption="📥 Подробный расчет со всеми позициями и цветовой разметкой.",
-    parse_mode="Markdown"
-)
-await state.clear()
-# ... инициализация бота и диспетчера
-dp.include_router(marginator_router)
-# Асинхронный контекст управления запуском и остановкой бота
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 1. Инициализация таблиц БД
     Base.metadata.create_all(bind=engine)
+    
+    # 2. Получение экземпляров бота и диспетчера
     bot, dp = get_bot_and_dp()
     bot_task = None
+    
     if bot and dp:
+        # Регистрируем роутер Маржинатора в диспетчере
+        dp.include_router(marginator_router)
+        
         # Запускаем поллинг Telegram-бота в фоновой задаче
         bot_task = asyncio.create_task(dp.start_polling(bot))
-        print("🤖 Telegram-бот успешно запущен в фоновом режиме")
+        print("🤖 Telegram-бот с модулем Маржинатора успешно запущен в фоновом режиме")
+        
     yield
+    
     if bot_task:
         bot_task.cancel()
 
