@@ -16,6 +16,14 @@ from states.marginator_states import CalcState
 from keyboards.marginator_keyboards import get_params_setup_keyboard, get_skip_keyboard
 from database import SessionLocal
 from services.marginator.db_service import MarginatorDBService
+import pandas as pd
+from aiogram.filters import Command
+from aiogram.types import BufferedInputFile
+
+from database import SessionLocal
+from services.marginator.db_service import MarginatorDBService
+from services.marginator.exporter import ExcelExporterService
+from keyboards.marginator_keyboards import get_history_keyboard
 # --- Переход к выборке параметров после успешного парсинга таблицы ---
 
 async def prompt_parameter_setup(message: Message, state: FSMContext):
@@ -213,3 +221,61 @@ async def handle_excel_upload(message: Message, state: FSMContext, bot: Bot):
 
     except Exception as e:
         await status_msg.edit_text(f"❌ Ошибка при анализе файла: `{str(e)}`", parse_mode="Markdown")
+# --- Обработчик команды /history ---
+
+@marginator_router.message(Command("history"))
+async def show_calculation_history(message: Message):
+    with SessionLocal() as db:
+        uploads = MarginatorDBService.get_user_history(db, message.from_user.id)
+        
+        if not uploads:
+            await message.answer("📂 У вас пока нет сохраненных расчетов.")
+            return
+        
+        await message.answer(
+            "📜 **История ваших последних расчетов:**\n"
+            "Выберите отчет для повторного скачивания файла Excel:",
+            reply_markup=get_history_keyboard(uploads),
+            parse_mode="Markdown"
+        )
+
+# --- Обработчик клика по кнопке скачивания из истории ---
+
+@marginator_router.callback_query(F.data.startswith("download_upload_"))
+async def download_archived_report(callback: CallbackQuery):
+    upload_id = int(callback.data.split("_")[-1])
+    await callback.answer("⏳ Генерирую отчет из БД...")
+    
+    with SessionLocal() as db:
+        upload = MarginatorDBService.get_upload_with_items(db, upload_id)
+        
+        if not upload or not upload.items:
+            await callback.message.answer("❌ Данные этого расчета не найдены.")
+            return
+        
+        # Восстановление данных для экспорта
+        items_data = [
+            {
+                "Товар": item.title,
+                "Себестоимость, ₽": item.buy_price,
+                "Выручка, ₽": item.est_sell_price,
+                "Чистая прибыль, ₽": item.net_profit,
+                "Маржинальность %": item.margin_pct,
+                "ROI %": item.roi_pct
+            }
+            for item in upload.items
+        ]
+        
+        df_results = pd.DataFrame(items_data)
+        excel_bytes = ExcelExporterService.export_results_to_excel(df_results)
+        document = BufferedInputFile(excel_bytes, filename=f"Archive_{upload.filename}")
+        
+        await callback.message.answer_document(
+            document=document,
+            caption=(
+                f"📦 **Архивный отчет:** `{upload.filename}`\n"
+                f"• Выручка: `{upload.total_revenue:,.2f} ₽`\n"
+                f"• Прибыль: `{upload.total_profit:,.2f} ₽`"
+            ),
+            parse_mode="Markdown"
+        )
