@@ -24,6 +24,7 @@ from database import SessionLocal
 from services.marginator.db_service import MarginatorDBService
 from services.marginator.exporter import ExcelExporterService
 from keyboards.marginator_keyboards import get_history_keyboard
+from keyboards.marginator_keyboards import get_webapp_keyboard
 # --- Переход к выборке параметров после успешного парсинга таблицы ---
 
 async def prompt_parameter_setup(message: Message, state: FSMContext):
@@ -157,25 +158,35 @@ async def execute_calculation(message: Message, state: FSMContext):
             continue
 
     df_results = pd.DataFrame(results)
-    # Сохранение в БД
-with SessionLocal() as db:
-    MarginatorDBService.save_calculation_results(
-        db=db,
-        telegram_id=message.from_user.id,
-        filename=file_name,
-        calc_mode=data.get("calc_mode", "marketplace"),
-        df_results=df_results
-    )
-    # 3. Генерация .xlsx отчета с цветовой разметкой
+    # Замените финал функции execute_calculation в backend/handlers/marginator_handler.py на:
+
+    # 1. Сохраняем расчет в БД и получаем объект upload_record
+    with SessionLocal() as db:
+        upload_record = MarginatorDBService.save_calculation_results(
+            db=db,
+            telegram_id=message.from_user.id,
+            filename=file_name,
+            calc_mode=data.get("calc_mode", "marketplace"),
+            df_results=df_results
+        )
+        upload_id = upload_record.id
+
+    # 2. Формируем документы и текст
+    summary = AnalyticsService.generate_summary(df_results)
+    summary_text = AnalyticsService.format_summary_message(summary)
     excel_bytes = ExcelExporterService.export_results_to_excel(df_results)
-    
-    # 4. Отправка документа в Telegram
     document = BufferedInputFile(excel_bytes, filename=f"Marginator_{file_name}")
-    
+
+    # 3. Отправляем карточку с прикрепленной кнопкой Mini App и Excel-документ
     await status_msg.delete()
+    await message.answer(
+        summary_text,
+        reply_markup=get_webapp_keyboard(upload_id),
+        parse_mode="Markdown"
+    )
     await message.answer_document(
         document=document,
-        caption="✅ **Расчет окончен!**\n\nТовары с маржой < 5% подсвечены красным, > 20% — зеленым.",
+        caption="📥 Полный Excel-файл со всеми позициями и цветами.",
         parse_mode="Markdown"
     )
     await state.clear()
