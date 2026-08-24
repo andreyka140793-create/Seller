@@ -9,7 +9,29 @@ from config import PurchasingConfig
 from bot import get_bot_and_dp
 from aiogram import Dispatcher
 from handlers.marginator_handler import marginator_router
+from services.marginator.analytics import AnalyticsService
 
+# ... внутри execute_calculation после формирования df_results:
+
+df_results = pd.DataFrame(results)
+
+# 1. Генерируем аналитическую карточку для чата
+summary = AnalyticsService.generate_summary(df_results)
+summary_text = AnalyticsService.format_summary_message(summary)
+
+# 2. Формируем Excel файл
+excel_bytes = ExcelExporterService.export_results_to_excel(df_results)
+document = BufferedInputFile(excel_bytes, filename=f"Marginator_{file_name}")
+
+# 3. Отправка результатов
+await status_msg.delete()
+await message.answer(summary_text, parse_mode="Markdown")
+await message.answer_document(
+    document=document,
+    caption="📥 Подробный расчет со всеми позициями и цветовой разметкой.",
+    parse_mode="Markdown"
+)
+await state.clear()
 # ... инициализация бота и диспетчера
 dp.include_router(marginator_router)
 # Асинхронный контекст управления запуском и остановкой бота
