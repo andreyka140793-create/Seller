@@ -31,6 +31,7 @@ from services.marginator.db_service import MarginatorDBService
 from services.marginator.analytics import AnalyticsService
 from services.marginator.utils import clean_numeric_value
 from services.marginator.schemas import TableMappingSchema
+from services.marginator.file_io import resolve_column
 from config import PurchasingConfig
 
 marginator_router = Router()
@@ -492,13 +493,38 @@ async def execute_calculation(message: Message, state: FSMContext):
         "📊 **Считаю юнит-экономику и формирую отчёт...**", parse_mode="Markdown"
     )
 
-    parser = ExcelParserService(api_key=os.getenv("GEMINI_API_KEY"))
-    df = parser.load_normalized_dataframe(file_bytes, file_name, mapping)
+    try:
+        parser = ExcelParserService(api_key=os.getenv("GEMINI_API_KEY"))
+        df = parser.load_normalized_dataframe(file_bytes, file_name, mapping)
+    except Exception as e:
+        await status_msg.edit_text(
+            f"❌ Ошибка чтения файла: `{e}`\n\n"
+            "Для `.xls` нужен пакет **xlrd**. Или сохраните файл как **.xlsx**.",
+            parse_mode="Markdown",
+        )
+        return
 
-    product_col = mapping.product_name_col
-    cost_col = mapping.cost_price_col
-    sell_col = mapping.selling_price_col
-    qty_col = mapping.quantity_col
+    # Сопоставляем имена колонок из mapping с реальными (регистр / пробелы)
+    product_col = resolve_column(df, mapping.product_name_col)
+    cost_col = resolve_column(df, mapping.cost_price_col)
+    sell_col = resolve_column(df, mapping.selling_price_col)
+    qty_col = resolve_column(df, mapping.quantity_col)
+
+    if not product_col or not cost_col:
+        cols_preview = ", ".join(f"`{c}`" for c in list(df.columns)[:12])
+        await status_msg.edit_text(
+            "❌ Не найдены нужные колонки в файле.\n\n"
+            f"Ожидали товар: `{mapping.product_name_col}` → "
+            f"{'найдено: ' + product_col if product_col else 'не найдено'}\n"
+            f"Ожидали цену: `{mapping.cost_price_col}` → "
+            f"{'найдено: ' + cost_col if cost_col else 'не найдено'}\n\n"
+            f"Колонки в файле: {cols_preview}\n\n"
+            "Отправьте /start и загрузите файл снова.",
+            parse_mode="Markdown",
+        )
+        _cleanup_temp_file(data.get("file_path"))
+        await state.clear()
+        return
 
     results = []
 
@@ -510,7 +536,8 @@ async def execute_calculation(message: Message, state: FSMContext):
 
         for _, row in df.iterrows():
             try:
-                product_name = str(row[product_col]).strip() if pd.notna(row.get(product_col)) else ""
+                raw_name = row.get(product_col)
+                product_name = str(raw_name).strip() if pd.notna(raw_name) else ""
                 if not product_name or product_name.lower() in (
                     "название", "наименование", "товар", "none", "nan",
                 ):
@@ -519,12 +546,12 @@ async def execute_calculation(message: Message, state: FSMContext):
                 if cost_price <= 0:
                     continue
                 qty = 1
-                if qty_col and qty_col in df.columns:
+                if qty_col:
                     q = clean_numeric_value(row.get(qty_col))
                     if q >= 1:
                         qty = int(q)
 
-                if sell_col and sell_col in df.columns:
+                if sell_col:
                     wholesale = clean_numeric_value(row.get(sell_col))
                     if wholesale <= 0:
                         wholesale = cost_price * (1 + PurchasingConfig.DEFAULT_MARKUP_PCT / 100.0)
@@ -560,7 +587,8 @@ async def execute_calculation(message: Message, state: FSMContext):
 
         for _, row in df.iterrows():
             try:
-                product_name = str(row[product_col]).strip() if pd.notna(row.get(product_col)) else ""
+                raw_name = row.get(product_col)
+                product_name = str(raw_name).strip() if pd.notna(raw_name) else ""
                 if not product_name or product_name.lower() in (
                     "название", "наименование", "товар", "none", "nan",
                 ):
@@ -571,14 +599,14 @@ async def execute_calculation(message: Message, state: FSMContext):
                     continue
 
                 qty = 1
-                if qty_col and qty_col in df.columns:
+                if qty_col:
                     q = clean_numeric_value(row.get(qty_col))
                     if q >= 1:
                         qty = int(q)
 
                 item = BaseItem(product_name=product_name, cost_price=cost_price, quantity=qty)
 
-                if sell_col and sell_col in df.columns:
+                if sell_col:
                     selling_price = clean_numeric_value(row.get(sell_col))
                     if selling_price <= 0:
                         selling_price = cost_price * (1 + PurchasingConfig.DEFAULT_MARKUP_PCT / 100.0)
@@ -605,8 +633,16 @@ async def execute_calculation(message: Message, state: FSMContext):
                 continue
 
     if not results:
+        cols_preview = ", ".join(f"`{c}`" for c in list(df.columns)[:12])
         await status_msg.edit_text(
-            "❌ Не удалось рассчитать ни одной позиции. Проверьте структуру файла."
+            "❌ Не удалось рассчитать ни одной позиции.\n\n"
+            f"Колонка товара: `{product_col}`, цена: `{cost_col}`\n"
+            f"Строк в таблице: `{len(df)}`\n"
+            f"Колонки: {cols_preview}\n\n"
+            "Проверьте, что в колонке цены есть числа > 0 "
+            "(не текст вроде «по запросу»).\n"
+            "Либо сохраните прайс как **.xlsx** и загрузите снова через /start.",
+            parse_mode="Markdown",
         )
         _cleanup_temp_file(data.get("file_path"))
         await state.clear()
