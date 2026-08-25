@@ -16,6 +16,9 @@ from keyboards.marginator_keyboards import (
     get_skip_keyboard,
     get_history_keyboard,
     get_webapp_keyboard,
+    get_run_keyboard,
+    get_main_reply_keyboard,
+    get_after_report_keyboard,
 )
 from database import SessionLocal
 from services.marginator.parser import ExcelParserService
@@ -274,7 +277,8 @@ async def apply_default_params(callback: CallbackQuery, state: FSMContext):
             "• Фрахт: `0 ₽/ед.`\n"
             "• Бонус менеджера: `0%`\n"
             "• НДС 20%: учтён\n\n"
-            "Отправьте `/run` для запуска расчёта.",
+            "Нажмите кнопку, чтобы посчитать:",
+            reply_markup=get_run_keyboard(),
             parse_mode="Markdown",
         )
     else:
@@ -290,7 +294,8 @@ async def apply_default_params(callback: CallbackQuery, state: FSMContext):
             f"• Логистика: `{PurchasingConfig.DEFAULT_LOGISTICS_RUB} ₽/ед.`\n"
             f"• Упаковка: `{PurchasingConfig.DEFAULT_PACKAGING_RUB} ₽/ед.`\n"
             f"• Налог (УСН): `{PurchasingConfig.DEFAULT_TAX_PCT}%`\n\n"
-            f"Отправьте `/run` для запуска расчёта.",
+            "Нажмите кнопку, чтобы посчитать:",
+            reply_markup=get_run_keyboard(),
             parse_mode="Markdown",
         )
 
@@ -300,7 +305,7 @@ async def apply_default_params(callback: CallbackQuery, state: FSMContext):
 
 # --- Ручной пошаговый ввод (маркетплейс) ---
 
-@marginator_router.callback_query(CalcState.input_commission, F.data == "params_custom")
+@marginator_router.callback_query(F.data == "params_custom")
 async def start_custom_params(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     mode = data.get("calc_mode", "marketplace")
@@ -387,7 +392,8 @@ async def process_tax_input(message: Message, state: FSMContext):
             f"• Логистика: `{data.get('logistics_cost')} ₽`\n"
             f"• Упаковка: `{data.get('packaging_cost')} ₽`\n"
             f"• Налог: `{data.get('tax_rate_percent')}%`\n\n"
-            f"Отправьте `/run` для запуска генерации отчёта.",
+            "Нажмите кнопку, чтобы посчитать:",
+            reply_markup=get_run_keyboard(),
             parse_mode="Markdown",
         )
         await state.set_state(CalcState.confirm_params)
@@ -427,7 +433,8 @@ async def process_manager_bonus_input(message: Message, state: FSMContext):
             f"• Фрахт: `{data.get('freight_cost')} ₽`\n"
             f"• Бонус менеджера: `{data.get('manager_bonus_percent')}%`\n"
             f"• НДС 20%: учтён\n\n"
-            f"Отправьте `/run` для запуска генерации отчёта.",
+            "Нажмите кнопку, чтобы посчитать:",
+            reply_markup=get_run_keyboard(),
             parse_mode="Markdown",
         )
         await state.set_state(CalcState.confirm_params)
@@ -477,7 +484,8 @@ async def skip_optional_param(callback: CallbackQuery, state: FSMContext):
             f"• Логистика: `{data.get('logistics_cost', 0.0)} ₽`\n"
             f"• Упаковка: `{data.get('packaging_cost', 0.0)} ₽`\n"
             f"• Налог: `0%`\n\n"
-            f"Отправьте `/run` для запуска генерации отчёта.",
+            "Нажмите кнопку, чтобы посчитать:",
+            reply_markup=get_run_keyboard(),
             parse_mode="Markdown",
         )
         await state.set_state(CalcState.confirm_params)
@@ -499,7 +507,8 @@ async def skip_optional_param(callback: CallbackQuery, state: FSMContext):
             f"• Фрахт: `{data.get('freight_cost', 0.0)} ₽`\n"
             f"• Бонус менеджера: `0%`\n"
             f"• НДС 20%: учтён\n\n"
-            f"Отправьте `/run` для запуска генерации отчёта.",
+            "Нажмите кнопку, чтобы посчитать:",
+            reply_markup=get_run_keyboard(),
             parse_mode="Markdown",
         )
         await state.set_state(CalcState.confirm_params)
@@ -507,16 +516,78 @@ async def skip_optional_param(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+
+# --- Кнопка «Рассчитать» (callback) ---
+
+@marginator_router.callback_query(F.data == "run_calc")
+async def execute_calculation_cb(callback: CallbackQuery, state: FSMContext):
+    await callback.answer("Считаю…")
+    # Переиспользуем message-хендлер через fake-like call
+    class _Msg:
+        def __init__(self, m):
+            self._m = m
+            self.from_user = m.from_user
+            self.chat = m.chat
+            self.answer = m.answer
+            self.answer_document = m.answer_document
+            self.bot = m.bot
+    await execute_calculation(_Msg(callback.message), state)
+
+
+@marginator_router.callback_query(F.data == "new_calc")
+async def new_calc_cb(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.answer()
+    await callback.message.answer(
+        "🔄 **Новый расчёт**\nВыберите режим:",
+        reply_markup=get_main_reply_keyboard(),
+        parse_mode="Markdown",
+    )
+    await callback.message.answer("Режим:", reply_markup=get_mode_keyboard())
+    await state.set_state(CalcState.select_mode)
+
+
+@marginator_router.callback_query(F.data == "show_history")
+async def show_history_cb(callback: CallbackQuery):
+    await callback.answer()
+    await show_calculation_history(callback.message)
+
+
+@marginator_router.message(F.text.in_({"🔄 Новый расчёт", "Новый расчёт"}))
+async def new_calc_text(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer(
+        "🔄 **Новый расчёт**\nВыберите режим:",
+        reply_markup=get_main_reply_keyboard(),
+        parse_mode="Markdown",
+    )
+    await message.answer("Режим:", reply_markup=get_mode_keyboard())
+    await state.set_state(CalcState.select_mode)
+
+
+@marginator_router.message(F.text.in_({"📂 История", "История"}))
+async def history_text(message: Message):
+    await show_calculation_history(message)
+
+
+@marginator_router.message(F.text.in_({"📖 Помощь", "Помощь", "/help"}))
+async def help_text(message: Message):
+    await cmd_help(message)
+
+
 # --- Запуск расчёта (/run) ---
 
 @marginator_router.message(CalcState.confirm_params, Command("run"))
 @marginator_router.message(CalcState.confirm_params, F.text == "/run")
+@marginator_router.message(CalcState.confirm_params, F.text.in_({
+    "🚀 Рассчитать", "Рассчитать", "посчитать", "Посчитать",
+}))
 async def execute_calculation(message: Message, state: FSMContext):
     data = await state.get_data()
 
     file_bytes = await _load_file_bytes_from_state(data)
     if file_bytes is None or "mapping" not in data:
-        await message.answer("❌ Данные файла потеряны. Отправьте /start и загрузите файл заново.")
+        await message.answer("❌ Данные файла потеряны. Нажмите «🔄 Новый расчёт» и загрузите файл снова.", reply_markup=get_main_reply_keyboard())
         await state.clear()
         return
 
@@ -781,9 +852,18 @@ async def show_calculation_history(message: Message):
 @marginator_router.message(F.document)
 async def handle_stray_document(message: Message):
     await message.answer(
-        "🤔 Похоже, вы отправили файл не вовремя.\n\n"
-        "Отправьте команду /start, чтобы начать новый расчёт заново.",
+        "🤔 Файл принят не вовремя.\n\n"
+        "Нажмите **«🔄 Новый расчёт»** внизу или /start, затем снова отправьте файл.",
+        reply_markup=get_main_reply_keyboard(),
+        parse_mode="Markdown",
     )
+
+
+@marginator_router.callback_query(F.data.startswith("hist_"))
+async def hist_shortcut(callback: CallbackQuery):
+    # hist_123 -> download
+    callback.data = "download_upload_" + callback.data.split("_", 1)[1]
+    await download_archived_report(callback)
 
 
 @marginator_router.callback_query(F.data.startswith("download_upload_"))
