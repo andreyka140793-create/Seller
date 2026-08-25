@@ -173,7 +173,7 @@ async def handle_excel_upload(message: Message, state: FSMContext, bot: Bot):
     os.close(fd)
     Path(temp_path).write_bytes(file_bytes)
 
-    parser = ExcelParserService(api_key=os.getenv("GEMINI_API_KEY"))
+    parser = ExcelParserService(api_key=os.getenv("XAI_API_KEY"))
 
     try:
         mapping = await parser.analyze_file_structure(file_bytes, file_name)
@@ -534,7 +534,7 @@ async def execute_calculation(message: Message, state: FSMContext):
     )
 
     try:
-        parser = ExcelParserService(api_key=os.getenv("GEMINI_API_KEY"))
+        parser = ExcelParserService(api_key=os.getenv("XAI_API_KEY"))
         df = parser.load_normalized_dataframe(file_bytes, file_name, mapping)
     except Exception as e:
         await status_msg.edit_text(
@@ -737,7 +737,9 @@ async def execute_calculation(message: Message, state: FSMContext):
     summary = AnalyticsService.generate_summary(df_results)
     summary_text = AnalyticsService.format_summary_message(summary)
     excel_bytes = ExcelExporterService.export_results_to_excel(df_results)
-    document = BufferedInputFile(excel_bytes, filename=f"Marginator_{file_name}")
+    # Всегда .xlsx: openpyxl пишет xlsx, а имя .xls Telegram/Excel не открывают
+    out_name = Path(file_name).stem + "_marginator.xlsx"
+    document = BufferedInputFile(excel_bytes, filename=out_name)
 
     await status_msg.delete()
     await message.answer(
@@ -814,7 +816,8 @@ async def download_archived_report(callback: CallbackQuery):
 
         df_results = pd.DataFrame(items_data)
         excel_bytes = ExcelExporterService.export_results_to_excel(df_results)
-        document = BufferedInputFile(excel_bytes, filename=f"Archive_{upload.filename}")
+        out_name = Path(upload.filename or "price").stem + "_marginator.xlsx"
+        document = BufferedInputFile(excel_bytes, filename=out_name)
 
         await callback.message.answer_document(
             document=document,
