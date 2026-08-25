@@ -1,24 +1,72 @@
 import os
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 import models
+from config import PurchasingConfig
 
 
-def get_params_setup_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура быстрой настройки параметров."""
+def get_mode_keyboard() -> InlineKeyboardMarkup:
+    """Выбор режима расчёта: маркетплейс или B2B."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="⚡ Использовать по умолчанию (15% ком., 120 ₽ лог., 6% налог)",
-                    callback_data="params_default"
+                    text="🛒 Маркетплейс (WB / Ozon)",
+                    callback_data="mode_marketplace",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🏢 B2B (опт / НДС)",
+                    callback_data="mode_b2b",
+                )
+            ],
+        ]
+    )
+
+
+def get_params_setup_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура быстрой настройки параметров (маркетплейс)."""
+    default_label = (
+        f"⚡ По умолчанию "
+        f"({PurchasingConfig.DEFAULT_MP_COMMISSION_PCT}% ком., "
+        f"{PurchasingConfig.DEFAULT_LOGISTICS_RUB} ₽ лог., "
+        f"{PurchasingConfig.DEFAULT_PACKAGING_RUB} ₽ уп., "
+        f"{PurchasingConfig.DEFAULT_TAX_PCT}% налог)"
+    )
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=default_label,
+                    callback_data="params_default",
                 )
             ],
             [
                 InlineKeyboardButton(
                     text="⚙️ Настроить вручную",
-                    callback_data="params_custom"
+                    callback_data="params_custom",
                 )
-            ]
+            ],
+        ]
+    )
+
+
+def get_b2b_params_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура быстрой настройки B2B-параметров."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="⚡ По умолчанию (фрахт 0 ₽, бонус 0%, НДС 20%)",
+                    callback_data="params_default",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⚙️ Настроить вручную",
+                    callback_data="params_custom",
+                )
+            ],
         ]
     )
 
@@ -40,18 +88,16 @@ def get_history_keyboard(uploads: list[models.PriceUpload]) -> InlineKeyboardMar
         buttons.append([
             InlineKeyboardButton(
                 text=btn_text,
-                callback_data=f"download_upload_{up.id}"
+                callback_data=f"download_upload_{up.id}",
             )
         ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_webapp_keyboard(upload_id: int) -> InlineKeyboardMarkup:
-    """Генерирует кнопку открытия Telegram Mini App для выбранной партии."""
+    """Генерирует кнопку открытия Telegram Mini App для конкретной партии."""
     base_url = os.getenv("WEB_APP_URL")
     if not base_url:
-        # Без WEB_APP_URL в .env кнопка будет вести на несуществующий адрес —
-        # явно предупреждаем в логах вместо тихой подстановки чужого домена.
         base_url = "https://your-domain.com/app"
         print("⚠️ WEB_APP_URL не задан в переменных окружения — используется заглушка.")
 
@@ -62,7 +108,7 @@ def get_webapp_keyboard(upload_id: int) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(
                     text="📊 Открыть интерактивный отчет (Mini App)",
-                    web_app=WebAppInfo(url=web_app_url)
+                    web_app=WebAppInfo(url=web_app_url),
                 )
             ]
         ]
