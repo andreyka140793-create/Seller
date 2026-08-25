@@ -38,11 +38,13 @@ class ExcelParserService:
         product = detected["product_name_col"] or (str(cols[0]) if cols else "Товар")
         cost = detected["cost_price_col"]
         if not cost:
-            for c in cols[1:4]:
-                if "артикул" not in _norm(c) and "sku" not in _norm(c):
-                    if any(x in _norm(c) for x in ("цен", "price", "cost", "руб", "₽")):
-                        cost = str(c)
-                        break
+            for c in cols[1:]:
+                cn = _norm(c)
+                if any(x in cn for x in ("артикул", "sku", "ед.", "единиц", "кол. в")):
+                    continue
+                if any(x in cn for x in ("цен", "price", "cost", "руб", "₽", "р.")):
+                    cost = str(c)
+                    break
             if not cost and len(cols) > 1:
                 cost = str(cols[min(3, len(cols) - 1)])
 
@@ -121,8 +123,10 @@ class ExcelParserService:
         product_final = pick(ai.product_name_col, default_mapping.product_name_col)
         cost_final = pick(ai.cost_price_col, default_mapping.cost_price_col)
 
-        if cost_final and any(
-            x in _norm(cost_final) for x in ("артикул", "sku", "barcode", "штрих")
+        if cost_final and (
+            any(x in _norm(cost_final) for x in ("артикул", "sku", "barcode", "штрих"))
+            or _norm(cost_final) in ("ед", "ед.", "unit")
+            or _norm(cost_final).startswith("ед.")
         ):
             cost_final = default_mapping.cost_price_col
 
