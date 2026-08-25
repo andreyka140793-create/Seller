@@ -1,37 +1,37 @@
-import os
+"""Определение индексов колонок через Grok (xAI). Без google-genai."""
 import json
-from google import genai
-from google.genai import types
+import os
+
+from services.marginator.llm_client import generate_json
+
 
 def extract_column_mapping(df_preview_json: str) -> dict:
     """
-    Отправляет фрагмент таблицы в Gemini для авто-определения номеров колонок.
+    Фрагмент таблицы → индексы колонок.
+    Без XAI_API_KEY возвращает значения по умолчанию.
     """
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        # Резервные индексы по умолчанию, если API ключ не задан
-        return {
-            "title_col_index": 0,
-            "price_col_index": 1,
-            "sku_col_index": None,
-            "stock_col_index": None,
-            "data_start_row": 1
-        }
-
-    client = genai.Client(api_key=api_key)
+    default = {
+        "title_col_index": 0,
+        "price_col_index": 1,
+        "sku_col_index": None,
+        "stock_col_index": None,
+        "data_start_row": 1,
+    }
+    if not os.getenv("XAI_API_KEY"):
+        return default
 
     prompt = f"""
-Проанализируй предпросмотр таблицы прайс-листа и определи индексы колонок (отсчет с 0):
-1. title_col_index: номер колонки с наименованием товара.
-2. price_col_index: номер колонки с ценой закупки.
-3. sku_col_index: номер колонки с артикулом/кодом товара (null если нет).
-4. stock_col_index: номер колонки с остатком/количеством (null если нет).
-5. data_start_row: номер строки (отсчет с 0), с которой начинаются реальные товары.
+Проанализируй предпросмотр таблицы прайс-листа и определи индексы колонок (отсчёт с 0):
+1. title_col_index: колонка с наименованием товара
+2. price_col_index: колонка с ценой закупки (не артикул, не Ед.)
+3. sku_col_index: артикул/код (null если нет)
+4. stock_col_index: остаток/количество (null если нет)
+5. data_start_row: строка, с которой начинаются товары
 
-JSON предпросмотр (первые строки):
+JSON предпросмотр:
 {df_preview_json}
 
-Верни ТОЛЬКО строго валидный JSON без лишнего текста:
+Верни ТОЛЬКО валидный JSON:
 {{
   "title_col_index": 0,
   "price_col_index": 1,
@@ -40,18 +40,10 @@ JSON предпросмотр (первые строки):
   "data_start_row": 1
 }}
 """
-
     try:
-        from services.marginator.llm_client import generate_json
         raw = generate_json(prompt, temperature=0.1)
         if not raw:
-            raise RuntimeError("Gemini unavailable")
+            return default
         return json.loads(raw)
     except Exception:
-        return {
-            "title_col_index": 0,
-            "price_col_index": 1,
-            "sku_col_index": None,
-            "stock_col_index": None,
-            "data_start_row": 1
-        }
+        return default
