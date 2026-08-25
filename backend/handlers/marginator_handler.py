@@ -31,7 +31,7 @@ from services.marginator.db_service import MarginatorDBService
 from services.marginator.analytics import AnalyticsService
 from services.marginator.utils import clean_numeric_value
 from services.marginator.schemas import TableMappingSchema
-from services.marginator.file_io import resolve_column
+from services.marginator.file_io import resolve_column, detect_columns_by_keywords
 from config import PurchasingConfig
 
 marginator_router = Router()
@@ -510,15 +510,33 @@ async def execute_calculation(message: Message, state: FSMContext):
     sell_col = resolve_column(df, mapping.selling_price_col)
     qty_col = resolve_column(df, mapping.quantity_col)
 
+    # Если mapping сбился (nan / Артикул вместо цены) — автодетект по ключевым словам
+    detected = detect_columns_by_keywords(df)
+    cost_looks_like_sku = bool(
+        cost_col and any(
+            x in str(cost_col).lower()
+            for x in ("артикул", "sku", "barcode", "штрих", "код ")
+        )
+    )
+    if not product_col:
+        product_col = detected.get("product_name_col")
+    if not cost_col or cost_looks_like_sku:
+        cost_col = detected.get("cost_price_col") or cost_col
+    if not sell_col:
+        sell_col = detected.get("selling_price_col")
+    if not qty_col:
+        qty_col = detected.get("quantity_col")
+
     if not product_col or not cost_col:
         cols_preview = ", ".join(f"`{c}`" for c in list(df.columns)[:12])
         await status_msg.edit_text(
             "❌ Не найдены нужные колонки в файле.\n\n"
             f"Ожидали товар: `{mapping.product_name_col}` → "
-            f"{'найдено: ' + product_col if product_col else 'не найдено'}\n"
+            f"{'найдено: `' + str(product_col) + '`' if product_col else 'не найдено'}\n"
             f"Ожидали цену: `{mapping.cost_price_col}` → "
-            f"{'найдено: ' + cost_col if cost_col else 'не найдено'}\n\n"
+            f"{'найдено: `' + str(cost_col) + '`' if cost_col else 'не найдено'}\n\n"
             f"Колонки в файле: {cols_preview}\n\n"
+            "Нужны колонки с **названием товара** и **закупочной ценой**.\n"
             "Отправьте /start и загрузите файл снова.",
             parse_mode="Markdown",
         )
