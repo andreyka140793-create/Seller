@@ -79,7 +79,7 @@ async def cmd_start(message: Message, state: FSMContext):
         "Я умею рассчитывать чистую прибыль, маржу и ROI для товаров на маркетплейсах и B2B.\n\n"
         "📌 **Как со мной работать:**\n"
         "1. Выберите режим расчёта.\n"
-        "2. Отправьте Excel-файл (`.xlsx` / `.xls` / `.csv`) с прайс-листом.\n"
+        "2. Отправьте прайс: Excel, CSV, TXT, Word, PDF или фото.\n"
         "3. Задайте финансовые параметры.\n"
         "4. Получите Excel-отчёт и интерактивный дашборд.\n\n"
         "Команды:\n"
@@ -94,17 +94,19 @@ async def cmd_start(message: Message, state: FSMContext):
 
 @marginator_router.message(Command("help"))
 async def cmd_help(message: Message):
+    max_mb = MAX_FILE_SIZE_BYTES // (1024 * 1024)
     await message.answer(
         "📖 **Инструкция по загрузке прайс-листов:**\n\n"
-        "• Бот автоматически распознаёт столбцы с помощью AI (Gemini), строгий шаблон не нужен.\n"
-        "• Желательно наличие колонок с **названием товара** и **закупочной ценой**.\n"
-        "• Опционально: цена продажи, количество.\n"
-        "• Если в файле несколько листов, обрабатывается первый.\n"
-        "• Форматы: `.xlsx`, `.xls`, `.csv`.\n"
-        f"• Максимальный размер файла: **{MAX_FILE_SIZE_BYTES // (1024 * 1024)} МБ**.",
+        "• Столбцы распознаются эвристикой + Grok (xAI).\n"
+        "• Желательно: **название товара** и **закупочная цена**.\n"
+        "• Форматы: Excel (xlsx/xls), CSV, TXT, Word (docx), PDF, фото (jpg/png).\n"
+        "• PDF — с текстовым слоем; сканы лучше как скриншот.\n"
+        f"• Максимальный размер: **{max_mb} МБ**.",
         parse_mode="Markdown",
     )
 
+
+# ---
 
 # --- Выбор режима ---
 
@@ -115,7 +117,7 @@ async def select_calc_mode(callback: CallbackQuery, state: FSMContext):
     label = "Маркетплейс" if mode == "marketplace" else "B2B"
     await callback.message.edit_text(
         f"✅ Режим: **{label}**\n\n"
-        "Теперь отправьте Excel-файл с прайс-листом (`.xlsx`, `.xls` или `.csv`).",
+        "Теперь отправьте прайс: `.xlsx` / `.xls` / `.csv` / `.txt` / `.docx` / `.pdf` / фото.",
         parse_mode="Markdown",
     )
     await state.set_state(CalcState.upload_file)
@@ -129,8 +131,17 @@ async def handle_excel_upload(message: Message, state: FSMContext, bot: Bot):
     document = message.document
     file_name = (document.file_name or "price.xlsx").lower()
 
-    if not (file_name.endswith(".xlsx") or file_name.endswith(".xls") or file_name.endswith(".csv")):
-        await message.answer("Пожалуйста, отправьте файл формата `.xlsx`, `.xls` или `.csv`.")
+    from services.marginator.document_loader import is_supported
+    if not is_supported(file_name):
+        await message.answer(
+            "Поддерживаемые форматы:\n"
+            "• Excel: `.xlsx`, `.xls`\n"
+            "• Таблицы: `.csv`, `.tsv`\n"
+            "• Текст: `.txt`\n"
+            "• Word: `.docx`\n"
+            "• PDF: `.pdf` (с текстовым слоем)\n"
+            "• Фото/скрин: `.jpg`, `.png`, `.webp`"
+        )
         return
 
     if document.file_size and document.file_size > MAX_FILE_SIZE_BYTES:
@@ -141,7 +152,7 @@ async def handle_excel_upload(message: Message, state: FSMContext, bot: Bot):
         return
 
     status_msg = await message.answer(
-        "🔄 **Анализирую структуру файла через Gemini...**", parse_mode="Markdown"
+        "🔄 **Анализирую файл (Grok + эвристика)...**", parse_mode="Markdown"
     )
 
     file_io = await bot.download(document.file_id)
