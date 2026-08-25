@@ -25,7 +25,7 @@ marginator_router = Router()
 # --- Команда /start ---
 
 @marginator_router.message(Command("start"))
-async def cmd_start(message: Message):
+async def cmd_start(message: Message, state: FSMContext):
     await message.answer(
         "👋 **Привет! Я бот-маржинатор Trade Agent.**\n\n"
         "Я умею рассчитывать чистую прибыль, маржу и ROI для товаров на маркетплейсах и B2B.\n\n"
@@ -38,6 +38,7 @@ async def cmd_start(message: Message):
         "• `/help` — Инструкция по формату файлов",
         parse_mode="Markdown"
     )
+    await state.set_state(CalcState.upload_file)
 
 
 @marginator_router.message(Command("help"))
@@ -345,7 +346,14 @@ async def show_calculation_history(message: Message):
         )
 
 
-# --- Обработчик клика по кнопке скачивания из истории ---
+# --- Файл прислан не в том состоянии (например, без /start или посреди настройки параметров) ---
+
+@marginator_router.message(F.document)
+async def handle_stray_document(message: Message):
+    await message.answer(
+        "🤔 Похоже, вы отправили файл не вовремя.\n\n"
+        "Отправьте команду /start, чтобы начать новый расчет заново.",
+    )
 
 @marginator_router.callback_query(F.data.startswith("download_upload_"))
 async def download_archived_report(callback: CallbackQuery):
