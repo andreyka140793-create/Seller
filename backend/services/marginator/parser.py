@@ -1,6 +1,4 @@
 import pandas as pd
-from google import genai
-from google.genai import types
 from services.marginator.schemas import TableMappingSchema
 from services.marginator.file_io import (
     read_table,
@@ -16,9 +14,9 @@ def _is_bad_name(name: object) -> bool:
 
 
 class ExcelParserService:
-    def __init__(self, api_key: str | None):
-        self.api_key = api_key
-        self.client = genai.Client(api_key=api_key) if api_key else None
+    def __init__(self, api_key: str | None = None):
+        # api_key оставлен для совместимости; реально смотрим XAI_API_KEY / GEMINI_API_KEY
+        self.api_key = api_key or __import__("os").getenv("GEMINI_API_KEY")
 
     async def analyze_file_structure(self, file_bytes: bytes, file_name: str) -> TableMappingSchema:
         df_preview = read_table(file_bytes, file_name, header=None, nrows=25)
@@ -57,7 +55,8 @@ class ExcelParserService:
             quantity_col=detected.get("quantity_col"),
         )
 
-        if not self.client:
+        import os as _os
+        if not (_os.getenv("XAI_API_KEY") or _os.getenv("GEMINI_API_KEY") or self.api_key):
             return default_mapping
 
         raw_preview = df_preview.head(20).to_string()
@@ -78,16 +77,11 @@ class ExcelParserService:
 """
 
         try:
-            response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=TableMappingSchema,
-                    temperature=0.0,
-                ),
-            )
-            ai = TableMappingSchema.model_validate_json(response.text)
+            from services.marginator.llm_client import generate_json
+            raw = generate_json(prompt, temperature=0.0)
+            if not raw:
+                return default_mapping
+            ai = TableMappingSchema.model_validate_json(raw)
         except Exception:
             return default_mapping
 
