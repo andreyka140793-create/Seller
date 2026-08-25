@@ -167,6 +167,35 @@ async def handle_excel_upload(message: Message, state: FSMContext, bot: Bot):
     try:
         mapping = await parser.analyze_file_structure(file_bytes, file_name)
 
+        # Жёсткая коррекция: не оставляем «Ед.» / артикул как цену
+        from services.marginator.file_io import read_table, detect_columns_by_keywords
+        try:
+            df_check = read_table(file_bytes, file_name, header=mapping.header_row_index, nrows=15)
+            df_check.columns = [str(c).strip().replace("\n", " ") for c in df_check.columns]
+            detected = detect_columns_by_keywords(df_check)
+            cost_n = str(mapping.cost_price_col or "").strip().lower()
+            bad_cost = (
+                not mapping.cost_price_col
+                or cost_n in ("ед", "ед.", "nan", "none")
+                or cost_n.startswith("ед.")
+                or any(x in cost_n for x in ("артикул", "sku", "единиц"))
+            )
+            if bad_cost and detected.get("cost_price_col"):
+                mapping.cost_price_col = detected["cost_price_col"]
+            if (not mapping.product_name_col or str(mapping.product_name_col).lower() in ("nan", "none")) and detected.get("product_name_col"):
+                mapping.product_name_col = detected["product_name_col"]
+            if not mapping.quantity_col and detected.get("quantity_col"):
+                mapping.quantity_col = detected["quantity_col"]
+            # запасной вариант: любая колонка с «руб» в названии
+            if not mapping.cost_price_col or str(mapping.cost_price_col).strip().lower() in ("ед", "ед."):
+                for c in df_check.columns:
+                    cl = str(c).lower()
+                    if any(x in cl for x in ("руб", "р.", "₽")) and "кол" not in cl:
+                        mapping.cost_price_col = str(c)
+                        break
+        except Exception:
+            pass
+
         await state.update_data(
             file_path=temp_path,
             file_name=file_name,
@@ -510,18 +539,34 @@ async def execute_calculation(message: Message, state: FSMContext):
     sell_col = resolve_column(df, mapping.selling_price_col)
     qty_col = resolve_column(df, mapping.quantity_col)
 
-    # Если mapping сбился (nan / Артикул вместо цены) — автодетект по ключевым словам
+    # Всегда прогоняем эвристику: прайсы B2B часто имеют «Ед.» и ступени «-I- … руб.»
     detected = detect_columns_by_keywords(df)
-    cost_looks_like_sku = bool(
-        cost_col and any(
-            x in str(cost_col).lower()
-            for x in ("артикул", "sku", "barcode", "штрих", "код ")
+
+    def _col_is_not_price(name: str | None) -> bool:
+        if not name:
+            return True
+        n = str(name).strip().lower().replace("ё", "е")
+        if n in ("ед", "ед.", "ед.изм", "ед. изм.", "unit", "uom"):
+            return True
+        if n.startswith("ед.") or n.startswith("ед "):
+            return True
+        bad = (
+            "артикул", "sku", "barcode", "штрих", "категор", "бренд",
+            "наимен", "назван", "остаток", "кол. в", "кол в уп",
         )
-    )
+        return any(b in n for b in bad)
+
     if not product_col:
         product_col = detected.get("product_name_col")
-    if not cost_col or cost_looks_like_sku:
+    if not cost_col or _col_is_not_price(cost_col):
         cost_col = detected.get("cost_price_col") or cost_col
+    # Если после эвристики всё ещё «Ед.» — ищем первую колонку с «руб»/«р.» в имени
+    if _col_is_not_price(cost_col):
+        for c in df.columns:
+            cn = str(c).lower()
+            if any(x in cn for x in ("руб", "р.", "₽", "price")) and not _col_is_not_price(str(c)):
+                cost_col = str(c)
+                break
     if not sell_col:
         sell_col = detected.get("selling_price_col")
     if not qty_col:
