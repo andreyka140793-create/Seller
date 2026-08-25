@@ -6,10 +6,11 @@ class PurchasingConfig:
     MIN_NET_PROFIT_RUB: float = 200.0   # Минимальная прибыль с 1 шт в рублях
     MIN_SUPPLIER_STOCK: int = 50       # Минимальный остаток на складе
 
-    # Стандартные комиссии и расходы (можно переопределять в Mini App)
-    DEFAULT_LOGISTICS_RUB: float = 150.0  # Логистика до склада/маркетплейса
+    # Стандартные комиссии и расходы (можно переопределять в Mini App / боте)
+    # Значения согласованы между API (/upload-price) и Telegram-ботом
+    DEFAULT_LOGISTICS_RUB: float = 120.0  # Логистика до склада/маркетплейса
     DEFAULT_PACKAGING_RUB: float = 30.0   # Упаковка и маркировка
-    DEFAULT_MP_COMMISSION_PCT: float = 15.0 # Комиссия маркетплейса (WB/Ozon)
+    DEFAULT_MP_COMMISSION_PCT: float = 15.0  # Комиссия маркетплейса (WB/Ozon)
     DEFAULT_TAX_PCT: float = 6.0          # Налог (УСН "Доходы" 6%)
 
     # Параметры наценки для первичного анализа
