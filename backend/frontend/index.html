@@ -85,6 +85,25 @@
 </head>
 <body>
 
+    <!-- Дружелюбная заглушка, когда открыли Mini App без конкретного расчёта -->
+    <div id="empty-state" style="display: none; text-align: center; padding: 40px 16px;">
+        <div style="font-size: 48px; margin-bottom: 12px;">📊</div>
+        <h2 style="font-size: 18px; margin: 0 0 8px;">Пока нечего показать</h2>
+        <p style="color: var(--hint-color); font-size: 14px; line-height: 1.5; margin: 0 0 24px;">
+            Отправьте боту Excel-файл с прайс-листом — после расчёта здесь появится
+            подробный дашборд с выручкой, прибылью и разбивкой по товарам.
+        </p>
+        <button
+            onclick="window.Telegram.WebApp.close()"
+            style="background-color: var(--accent-color); color: #fff; border: none;
+                   border-radius: 10px; padding: 12px 24px; font-size: 15px; font-weight: 600;
+                   cursor: pointer;"
+        >
+            Вернуться в чат с ботом
+        </button>
+    </div>
+
+    <div id="dashboard-content">
     <h2 id="filename-header" style="font-size: 20px; margin-top: 0;">📊 Анализ партии</h2>
 
     <!-- Ключевые показатели -->
@@ -121,6 +140,7 @@
             </tbody>
         </table>
     </div>
+    </div>
 
     <script>
         const tg = window.Telegram.WebApp;
@@ -129,17 +149,49 @@
 
         // 1. Извлекаем upload_id из URL параметров
         const urlParams = new URLSearchParams(window.location.search);
-        const uploadId = urlParams.get('upload_id');
-        
+        let uploadId = urlParams.get('upload_id');
+
         // Укажите URL вашего FastAPI бэкенда
         // Mini App отдаётся тем же бэкендом на /app, поэтому используем текущий origin,
         // а не захардкоженный домен-плейсхолдер.
         const API_BASE_URL = window.location.origin;
 
+        function showEmptyState() {
+            document.getElementById('dashboard-content').style.display = 'none';
+            document.getElementById('empty-state').style.display = 'block';
+        }
+
+        // Если Mini App открыли без upload_id (например, через постоянную кнопку меню
+        // бота, а не через кнопку под конкретным расчётом) — пробуем молча подставить
+        // последний расчёт пользователя. Если расчётов ещё нет — показываем
+        // дружелюбную заглушку вместо технической ошибки.
+        async function resolveUploadId() {
+            if (uploadId) return true;
+
+            const telegramUser = tg.initDataUnsafe?.user;
+            if (!telegramUser?.id) return false;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/history/${telegramUser.id}`, {
+                    headers: { 'X-Telegram-Init-Data': tg.initData }
+                });
+                if (!response.ok) return false;
+
+                const history = await response.json();
+                if (Array.isArray(history) && history.length > 0) {
+                    uploadId = history[0].id;
+                    return true;
+                }
+            } catch (err) {
+                console.error(err);
+            }
+            return false;
+        }
+
         async function loadDashboardData() {
-            if (!uploadId) {
-                document.getElementById('items-table-body').innerHTML = 
-                    '<tr><td colspan="4" style="text-align:center; color:red;">Ошибка: upload_id не найден</td></tr>';
+            const hasUpload = await resolveUploadId();
+            if (!hasUpload) {
+                showEmptyState();
                 return;
             }
 
@@ -186,8 +238,7 @@ const response = await fetch(`${API_BASE_URL}/api/upload/${uploadId}`, {
 
             } catch (err) {
                 console.error(err);
-                document.getElementById('items-table-body').innerHTML = 
-                    '<tr><td colspan="4" style="text-align:center; color:red;">Ошибка загрузки данных</td></tr>';
+                showEmptyState();
             }
         }
 
