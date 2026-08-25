@@ -1,8 +1,8 @@
-import io
 import pandas as pd
 from google import genai
 from google.genai import types
 from services.marginator.schemas import TableMappingSchema
+from services.marginator.file_io import read_table
 
 
 class ExcelParserService:
@@ -15,18 +15,20 @@ class ExcelParserService:
         Сканирует первые 20 строк файла с помощью Gemini 2.5 Flash
         и возвращает схему расположения ключевых колонок.
         """
-        buffer = io.BytesIO(file_bytes)
+        df_preview = read_table(file_bytes, file_name, header=None, nrows=20)
 
-        if file_name.endswith(".csv"):
-            df_preview = pd.read_csv(buffer, header=None, nrows=20)
-        else:
-            df_preview = pd.read_excel(buffer, header=None, nrows=20)
+        if df_preview.empty or df_preview.shape[1] == 0:
+            raise RuntimeError("Файл пустой или не содержит колонок.")
 
-        # Эвристика по умолчанию, если нет API-ключа или Gemini недоступен
+        # Эвристика: первая строка как заголовки
         default_mapping = TableMappingSchema(
             header_row_index=0,
-            product_name_col=str(df_preview.iloc[0, 0]) if df_preview.shape[1] > 0 else "Товар",
-            cost_price_col=str(df_preview.iloc[0, 1]) if df_preview.shape[1] > 1 else "Цена",
+            product_name_col=str(df_preview.iloc[0, 0]).strip()
+            if df_preview.shape[1] > 0
+            else "Товар",
+            cost_price_col=str(df_preview.iloc[0, 1]).strip()
+            if df_preview.shape[1] > 1
+            else "Цена",
             selling_price_col=None,
             commission_col=None,
             quantity_col=None,
@@ -45,9 +47,10 @@ class ExcelParserService:
 
         Задача:
         1. Найди индекс строки (0-based), которая содержит заголовки столбцов.
-        2. Найди точное название колонки с товаром/артикулом.
+        2. Найди точное название колонки с товаром/артикулом (как в строке заголовков).
         3. Найди точное название колонки с себестоимостью или закупочной ценой.
         4. Если есть, укажи названия колонок цены продажи, комиссии и количества.
+        Верни имена колонок ТОЧНО как в заголовке таблицы.
         """
 
         try:
@@ -79,15 +82,10 @@ class ExcelParserService:
         else:
             header_row_index = mapping.header_row_index
 
-        buffer = io.BytesIO(file_bytes)
-
-        if file_name.endswith(".csv"):
-            df = pd.read_csv(buffer, header=header_row_index)
-        else:
-            df = pd.read_excel(buffer, header=header_row_index)
+        df = read_table(file_bytes, file_name, header=header_row_index)
 
         # Очистка имён колонок от пробелов и переносов строк
-        df.columns = [str(col).strip() for col in df.columns]
+        df.columns = [str(col).strip().replace("\n", " ") for col in df.columns]
 
         # Удаляем полностью пустые строки
         df = df.dropna(how="all")
