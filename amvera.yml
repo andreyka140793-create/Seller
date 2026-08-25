@@ -3,4 +3,8 @@ meta:
 build:
   dockerfile: backend/Dockerfile
 run:
+  scriptName: run.py
   containerPort: 8000
+# На Amvera подключите persistent volume на путь /data
+# (SQLite: /data/app.db, временные прайс-листы: /data/uploads).
+# В панели Amvera: Storage → Mount path = /data

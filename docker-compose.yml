@@ -28,8 +28,12 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - WEB_APP_URL=${WEB_APP_URL}
+    volumes:
+      # Локальный аналог /data на Amvera: SQLite-фолбэк и временные прайс-листы
+      - app_data:/data
     depends_on:
       - db
 
 volumes:
   postgres_data:
+  app_data:
