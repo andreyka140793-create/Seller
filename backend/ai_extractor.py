@@ -42,15 +42,11 @@ JSON предпросмотр (первые строки):
 """
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.1,
-            )
-        )
-        return json.loads(response.text)
+        from services.marginator.llm_client import generate_json
+        raw = generate_json(prompt, temperature=0.1)
+        if not raw:
+            raise RuntimeError("Gemini unavailable")
+        return json.loads(raw)
     except Exception:
         return {
             "title_col_index": 0,
