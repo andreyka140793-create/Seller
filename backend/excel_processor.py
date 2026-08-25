@@ -17,10 +17,8 @@ def process_excel_file(
     """
     Чтение файла, вызов ИИ для определения колонок и расчет экономики для каждой строки.
     """
-    if filename.endswith('.csv'):
-        df_raw = pd.read_csv(io.BytesIO(file_bytes), header=None)
-    else:
-        df_raw = pd.read_excel(io.BytesIO(file_bytes), header=None)
+    from services.marginator.file_io import read_table
+    df_raw = read_table(file_bytes, filename, header=None)
 
     df_raw = df_raw.where(pd.notnull(df_raw), None)
 
