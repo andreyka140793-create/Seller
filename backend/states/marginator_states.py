@@ -2,13 +2,15 @@ from aiogram.fsm.state import State, StatesGroup
 
 
 class CalcState(StatesGroup):
-    select_mode = State()          # Выбор режима (Маркетплейс / B2B)
-    upload_file = State()          # Ожидание загрузки файла
-    input_commission = State()     # Ввод комиссии маркетплейса (%)
-    input_logistics = State()      # Ввод стоимости логистики на единицу (₽)
-    input_packaging = State()      # Ввод стоимости упаковки на единицу (₽)
-    input_tax = State()            # Ввод налоговой ставки (%)
-    # B2B-параметры
-    input_freight = State()        # Фрахт / доставка на единицу (₽)
-    input_manager_bonus = State()  # Бонус менеджера (%)
-    confirm_params = State()       # Подтверждение и запуск расчета
+    select_mode = State()
+    upload_file = State()
+    select_price_col = State()   # выбор ступени B2B / колонки цены
+    input_commission = State()
+    input_logistics = State()
+    input_packaging = State()
+    input_tax = State()
+    input_freight = State()
+    input_manager_bonus = State()
+    input_target_margin = State()  # целевая маржинальность %
+    confirm_params = State()
+    save_preset_name = State()   # имя пресета
