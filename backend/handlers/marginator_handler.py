@@ -806,6 +806,42 @@ async def compare_receive_b(message: Message, state: FSMContext, bot: Bot):
             out,
             caption="Сравнение: разница ₽ и %, статус по каждой позиции.",
         )
+        # сохранить в историю как «расчёт» для повторного скачивания
+        try:
+            hist_rows = []
+            for _, row in result.iterrows():
+                price_a = row.get("Цена A, ₽")
+                price_b = row.get("Цена B, ₽")
+                try:
+                    pa = float(price_a) if price_a is not None and str(price_a) != "nan" else 0.0
+                except Exception:
+                    pa = 0.0
+                try:
+                    pb = float(price_b) if price_b is not None and str(price_b) != "nan" else 0.0
+                except Exception:
+                    pb = 0.0
+                delta = pb - pa if pa and pb else 0.0
+                hist_rows.append({
+                    "Товар": row.get("Товар") or "—",
+                    "Себестоимость, ₽": pa or pb,
+                    "Выручка, ₽": pb or pa,
+                    "Чистая прибыль, ₽": -delta if pa and pb else 0.0,
+                    "Маржинальность %": float(row["Разница %"]) if row.get("Разница %") is not None and str(row.get("Разница %")) != "nan" else 0.0,
+                    "ROI %": 0.0,
+                })
+            if hist_rows:
+                df_hist = pd.DataFrame(hist_rows)
+                with SessionLocal() as db:
+                    MarginatorDBService.save_calculation_results(
+                        db=db,
+                        telegram_id=int(message.from_user.id),
+                        filename=f"compare_{name_a}_vs_{name_b}"[:200],
+                        calc_mode="compare",
+                        df_results=df_hist,
+                    )
+                await message.answer("Сравнение сохранено в «📂 История».")
+        except Exception as he:
+            await message.answer(f"В историю не сохранилось: {he}")
     except Exception as e:
         await status.edit_text(f"Ошибка сравнения: {type(e).__name__}: {e}")
     finally:
@@ -1410,6 +1446,15 @@ async def execute_calculation(message: Message, state: FSMContext):
 @marginator_router.callback_query(F.data == "fx_setup")
 async def fx_setup_start(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="USD ЦБ", callback_data="fx_cbr_USD"),
+            InlineKeyboardButton(text="CNY ЦБ", callback_data="fx_cbr_CNY"),
+            InlineKeyboardButton(text="EUR ЦБ", callback_data="fx_cbr_EUR"),
+        ],
+        [InlineKeyboardButton(text="Уже рубли (×1)", callback_data="fx_cbr_RUB")],
+    ])
     await callback.message.answer(
         "💱 Закуп в валюте\n\n"
         "Если в прайсе цены не в рублях — укажите курс.\n\n"
@@ -1418,11 +1463,45 @@ async def fx_setup_start(callback: CallbackQuery, state: FSMContext):
         "• USD 92.5 — доллары по 92.5 ₽\n"
         "• CNY 13 — юани по 13 ₽\n"
         "• 1 — в файле уже рубли, курс не нужен\n\n"
+        "Или нажмите курс **ЦБ РФ** (на сегодня).\n\n"
         "Бот умножит себестоимость на курс.\n"
         "Комиссия, логистика и маржа считаются в ₽.\n\n"
-        "Отправьте курс одним сообщением."
+        "Отправьте курс одним сообщением или выберите кнопку.",
+        reply_markup=kb,
+        parse_mode="Markdown",
     )
     await state.set_state(CalcState.input_fx_rate)
+
+
+@marginator_router.callback_query(CalcState.input_fx_rate, F.data.startswith("fx_cbr_"))
+async def fx_cbr_pick(callback: CallbackQuery, state: FSMContext):
+    code = (callback.data or "").replace("fx_cbr_", "").upper()
+    if code == "RUB":
+        await state.update_data(fx_rate=1.0, fx_code="RUB")
+        await callback.answer("Без пересчёта")
+        await callback.message.answer("✅ Курс ×1 — цены уже в рублях.")
+        await prompt_parameter_setup(callback.message, state)
+        return
+    try:
+        from services.marginator.fx_cbr import get_cbr_rate
+        rate = get_cbr_rate(code)
+    except Exception as e:
+        await callback.answer("ЦБ недоступен", show_alert=True)
+        await callback.message.answer(
+            f"Не удалось взять курс ЦБ ({e}).\nВведите курс вручную, например: {code} 90"
+        )
+        return
+    if rate is None:
+        await callback.answer("Нет курса", show_alert=True)
+        await callback.message.answer(f"Валюта {code} не найдена в ЦБ. Введите курс вручную.")
+        return
+    await state.update_data(fx_rate=float(rate), fx_code=code)
+    await callback.answer(f"{code} {rate}")
+    await callback.message.answer(
+        f"✅ Курс ЦБ: 1 {code} = {rate} ₽\n"
+        f"Себестоимость из файла × {rate}."
+    )
+    await prompt_parameter_setup(callback.message, state)
 
 
 @marginator_router.message(CalcState.input_fx_rate)
