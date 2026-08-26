@@ -1395,12 +1395,16 @@ async def execute_calculation(message: Message, state: FSMContext):
 async def fx_setup_start(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await callback.message.answer(
-        "💱 Курс для пересчёта закупа в ₽\\n\\n"
-        "Примеры:\\n"
-        "• `95` — просто курс (валюта файла × 95)\\n"
-        "• `USD 92.5` или `CNY 13.2`\\n"
-        "• `1` — цены уже в рублях\\n\\n"
-        "Отправьте число или код и курс одним сообщением."
+        "💱 Закуп в валюте\n\n"
+        "Если в прайсе цены не в рублях — укажите курс.\n\n"
+        "Как написать:\n"
+        "• 95 — умножить закуп на 95\n"
+        "• USD 92.5 — доллары по 92.5 ₽\n"
+        "• CNY 13 — юани по 13 ₽\n"
+        "• 1 — в файле уже рубли, курс не нужен\n\n"
+        "Бот умножит себестоимость на курс.\n"
+        "Комиссия, логистика и маржа считаются в ₽.\n\n"
+        "Отправьте курс одним сообщением."
     )
     await state.set_state(CalcState.input_fx_rate)
 
@@ -1410,25 +1414,29 @@ async def process_fx_rate(message: Message, state: FSMContext):
     import re as _re
     raw = (message.text or "").strip().upper().replace(",", ".")
     code = "FX"
-    m = _re.match(r"([A-Z]{3})\\s*([0-9]+(?:\\.[0-9]+)?)", raw)
+    m = _re.match(r"([A-Z]{3})\s*([0-9]+(?:\.[0-9]+)?)", raw)
     if m:
         code, rate_s = m.group(1), m.group(2)
         rate = float(rate_s)
     else:
-        m2 = _re.search(r"[0-9]+(?:\\.[0-9]+)?", raw)
+        m2 = _re.search(r"[0-9]+(?:\.[0-9]+)?", raw)
         if not m2:
-            await message.answer("Не понял курс. Пример: 92.5 или USD 92.5")
+            await message.answer(
+                "Не понял курс.\n"
+                "Примеры: 92.5 или USD 92.5 или CNY 13"
+            )
             return
         rate = float(m2.group(0))
     if rate <= 0:
-        await message.answer("Курс должен быть > 0")
+        await message.answer("Курс должен быть больше 0.")
         return
     await state.update_data(fx_rate=rate, fx_code=code)
     await message.answer(
-        f"✅ Курс: 1 {code} = {rate} ₽\\n"
-        "Закуп в файле будет умножен на этот курс."
+        f"✅ Курс принят: 1 {code} = {rate} ₽\n\n"
+        f"Себестоимость из файла будет умножена на {rate}.\n"
+        "Дальше расчёт идёт в рублях "
+        "(комиссия, логистика, маржа)."
     )
-    # вернёмся к параметрам
     await prompt_parameter_setup(message, state)
 
 
