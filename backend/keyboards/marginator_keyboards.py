@@ -26,6 +26,7 @@ def get_mode_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="🛒 Маркетплейс (WB / Ozon)", callback_data="mode_marketplace")],
             [InlineKeyboardButton(text="🏢 B2B (опт / НДС)", callback_data="mode_b2b")],
+            [InlineKeyboardButton(text="⚖️ Сравнить 2 прайса", callback_data="mode_compare")],
         ]
     )
 
@@ -193,3 +194,33 @@ def get_webapp_keyboard(upload_id: int | str | None = None) -> InlineKeyboardMar
         sep = "&" if "?" in base else "?"
         webapp_url = f"{base}{sep}upload_id={upload_id}"
     return get_after_report_keyboard(webapp_url)
+
+
+def get_mapping_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Всё верно", callback_data="map_ok")],
+        [InlineKeyboardButton(text="✏️ Изменить колонки", callback_data="map_edit")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_flow")],
+    ])
+
+
+def get_mapping_field_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Товар / название", callback_data="map_field_product")],
+        [InlineKeyboardButton(text="Себестоимость / закуп", callback_data="map_field_cost")],
+        [InlineKeyboardButton(text="Цена продажи (если есть)", callback_data="map_field_sell")],
+        [InlineKeyboardButton(text="Количество", callback_data="map_field_qty")],
+        [InlineKeyboardButton(text="✅ Готово", callback_data="map_ok")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_flow")],
+    ])
+
+
+def get_column_pick_keyboard(columns: list[str], prefix: str = "map_col") -> InlineKeyboardMarkup:
+    rows = []
+    for i, col in enumerate(columns[:20]):
+        rows.append([InlineKeyboardButton(
+            text=f"📌 {str(col)[:40]}",
+            callback_data=f"{prefix}_{i}",
+        )])
+    rows.append([InlineKeyboardButton(text="« Назад", callback_data="map_edit")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
