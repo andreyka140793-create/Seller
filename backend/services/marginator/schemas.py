@@ -22,3 +22,7 @@ class TableMappingSchema(BaseModel):
         default=None, 
         description="Точное название колонки с количеством (если есть)"
     )
+    weight_col: str | None = Field(
+        default=None,
+        description="Колонка веса (кг или г)"
+    )

@@ -276,3 +276,19 @@ def list_price_tier_columns(df) -> list[str]:
             seen.add(name)
             out.append(name)
     return out
+
+
+
+def detect_weight_column(df) -> str | None:
+    """Колонка веса в кг (вес, weight, кг, kg)."""
+    best, score = None, 0
+    for col in df.columns:
+        n = str(col).strip().lower().replace("ё", "е")
+        sc = 0
+        if any(x in n for x in ("вес", "weight", "кг", "kg", "масса")):
+            sc += 15
+        if "г." in n or n.endswith(" г") or "грамм" in n:
+            sc += 5  # граммы — тоже, пересчитаем /1000
+        if sc > score:
+            score, best = sc, str(col)
+    return best if score >= 15 else None

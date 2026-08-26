@@ -145,3 +145,18 @@ class ExcelExporterService:
         final = io.BytesIO()
         wb.save(final)
         return final.getvalue()
+
+
+    @staticmethod
+    def export_buy_list(df_results: pd.DataFrame, min_roi: float = 30.0) -> bytes:
+        """Только позиции с ROI >= порога (или маржой >= 5, если ROI нет)."""
+        df = df_results.copy()
+        if "ROI %" in df.columns:
+            filtered = df[df["ROI %"] >= min_roi]
+        elif "Маржинальность %" in df.columns:
+            filtered = df[df["Маржинальность %"] >= 5.0]
+        else:
+            filtered = df
+        if filtered.empty:
+            filtered = df.head(0)
+        return ExcelExporterService.export_results_to_excel(filtered)

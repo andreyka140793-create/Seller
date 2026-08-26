@@ -19,6 +19,7 @@ class BaseItem(BaseModel):
     product_name: str
     cost_price: float = Field(gt=0, description="Закупочная цена / себестоимость единицы")
     quantity: int = Field(default=1, gt=0)
+    weight_kg: float | None = Field(default=None, ge=0, description="Вес единицы, кг")
 
 
 class CalculationResult(BaseModel):
@@ -42,7 +43,8 @@ class BaseCalculator(ABC):
 class MarketplaceParams(BaseModel):
     selling_price: float
     commission_percent: float = Field(default=15.0, ge=0, le=100)
-    logistics_cost: float = Field(default=120.0, ge=0)
+    logistics_cost: float = Field(default=120.0, ge=0)  # фикс ₽/шт
+    logistics_per_kg: float | None = Field(default=None, ge=0)  # ₽/кг; если задано и есть вес — используется
     packaging_cost: float = Field(default=30.0, ge=0)
     tax_rate_percent: float = Field(default=6.0, ge=0, le=100)
 
@@ -53,7 +55,10 @@ class MarketplaceCalculator(BaseCalculator):
         revenue = params.selling_price * qty
         cost = item.cost_price * qty
         commission = revenue * (params.commission_percent / 100.0)
-        logistics = params.logistics_cost * qty
+        if params.logistics_per_kg is not None and item.weight_kg and item.weight_kg > 0:
+            logistics = params.logistics_per_kg * item.weight_kg * qty
+        else:
+            logistics = params.logistics_cost * qty
         packaging = params.packaging_cost * qty
 
         # Переменные: всё, что растёт с продажей (как в статье + комиссия МП)
