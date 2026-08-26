@@ -13,7 +13,7 @@ def clean_numeric_value(value, allow_negative: bool = False) -> float:
     cleaned = (
         str(value)
         .replace(" ", "")
-        .replace(" ", "")
+        .replace("\xa0", "")
         .replace("₽", "")
         .replace("$", "")
         .replace(",", ".")
@@ -28,5 +28,5 @@ def clean_numeric_value(value, allow_negative: bool = False) -> float:
 
 def sanitize_filename(name: str) -> str:
     """Sanitize filename for safe filesystem usage."""
-    name = name.split("/")[-1].split("\")[-1]
+    name = name.split("/")[-1].split("\\")[-1]
     return re.sub(r"[^a-zA-Z0-9._-]", "", name)[:50]
