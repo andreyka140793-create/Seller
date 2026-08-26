@@ -840,10 +840,9 @@ async def show_calculation_history(message: Message):
             return
 
         await message.answer(
-            "📜 **История ваших последних расчётов:**\n"
-            "Выберите отчёт для повторного скачивания файла Excel:",
+            f"📜 История расчётов ({len(uploads)}):\n"
+            "Нажмите на файл — пришлю Excel повторно.",
             reply_markup=get_history_keyboard(uploads),
-            parse_mode="Markdown",
         )
 
 
@@ -859,52 +858,77 @@ async def handle_stray_document(message: Message):
     )
 
 
-@marginator_router.callback_query(F.data.startswith("hist_"))
-async def hist_shortcut(callback: CallbackQuery):
-    # hist_123 -> download
-    callback.data = "download_upload_" + callback.data.split("_", 1)[1]
-    await download_archived_report(callback)
-
-
-@marginator_router.callback_query(F.data.startswith("download_upload_"))
+@marginator_router.callback_query(
+    F.data.startswith("download_upload_") | F.data.startswith("hist_")
+)
 async def download_archived_report(callback: CallbackQuery):
-    upload_id = int(callback.data.split("_")[-1])
-    await callback.answer("⏳ Генерирую отчёт из БД...")
+    """Скачать Excel из истории. Всегда отвечаем на callback, чтобы не «висела» кнопка."""
+    try:
+        await callback.answer("Готовлю Excel…")
+    except Exception:
+        pass
 
-    with SessionLocal() as db:
-        upload = MarginatorDBService.get_upload_with_items(db, upload_id)
+    try:
+        raw = callback.data or ""
+        # download_upload_12  или  hist_12
+        upload_id = int(raw.rsplit("_", 1)[-1])
+    except Exception:
+        await callback.message.answer("❌ Некорректный ID расчёта.")
+        return
 
-        if not upload or not upload.items:
-            await callback.message.answer("❌ Данные этого расчёта не найдены.")
-            return
+    try:
+        with SessionLocal() as db:
+            upload = MarginatorDBService.get_upload_with_items(db, upload_id)
 
-        if not upload.user or upload.user.telegram_id != callback.from_user.id:
-            await callback.message.answer("❌ Этот расчёт вам не принадлежит.")
-            return
+            if not upload:
+                await callback.message.answer(
+                    "❌ Расчёт не найден в базе. Сделайте новый расчёт."
+                )
+                return
 
-        items_data = [
-            {
-                "Товар": item.title,
-                "Себестоимость, ₽": item.buy_price,
-                "Выручка, ₽": item.est_sell_price,
-                "Чистая прибыль, ₽": item.net_profit,
-                "Маржинальность %": item.margin_pct,
-                "ROI %": item.roi_pct,
-            }
-            for item in upload.items
-        ]
+            owner_id = upload.user.telegram_id if upload.user else None
+            if owner_id is not None and int(owner_id) != int(callback.from_user.id):
+                await callback.message.answer("❌ Этот расчёт вам не принадлежит.")
+                return
+
+            items = list(upload.items or [])
+            if not items:
+                await callback.message.answer(
+                    "❌ В этом расчёте нет сохранённых позиций.\n"
+                    "Возможно, запись создалась без товаров. Запустите расчёт ещё раз."
+                )
+                return
+
+            items_data = [
+                {
+                    "Товар": item.title,
+                    "Себестоимость, ₽": item.buy_price,
+                    "Выручка, ₽": item.est_sell_price,
+                    "Чистая прибыль, ₽": item.net_profit,
+                    "Маржинальность %": item.margin_pct,
+                    "ROI %": item.roi_pct,
+                }
+                for item in items
+            ]
+            filename = upload.filename or "price.xlsx"
+            total_revenue = float(upload.total_revenue or 0)
+            total_profit = float(upload.total_profit or 0)
 
         df_results = pd.DataFrame(items_data)
         excel_bytes = ExcelExporterService.export_results_to_excel(df_results)
-        out_name = Path(upload.filename or "price").stem + "_marginator.xlsx"
+        out_name = Path(filename).stem + "_marginator.xlsx"
         document = BufferedInputFile(excel_bytes, filename=out_name)
 
         await callback.message.answer_document(
             document=document,
             caption=(
-                f"📦 **Архивный отчёт:** `{upload.filename}`\n"
-                f"• Выручка: `{upload.total_revenue:,.2f} ₽`\n"
-                f"• Прибыль: `{upload.total_profit:,.2f} ₽`"
+                f"📦 Архивный отчёт: {filename}\n"
+                f"• Позиций: {len(items_data)}\n"
+                f"• Выручка: {total_revenue:,.2f} ₽\n"
+                f"• Прибыль: {total_profit:,.2f} ₽"
             ),
-            parse_mode="Markdown",
+        )
+    except Exception as e:
+        await callback.message.answer(
+            f"❌ Не удалось сформировать отчёт: {type(e).__name__}: {e}"
         )
