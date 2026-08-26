@@ -1,20 +1,16 @@
-"""Единое чтение прайс-листов: csv / xlsx / xls + умный поиск колонок."""
+"""Unified table reading and smart column detection."""
 from __future__ import annotations
-
 import io
 import re
-
 import pandas as pd
 
 _PRODUCT_KEYWORDS = (
     "наимен", "назван", "товар", "product", "name", "title", "item", "модель",
 )
-# Явные маркеры закупочной / оптовой цены
 _COST_KEYWORDS = (
     "закуп", "себестоим", "cost", "purchase", "buy", "оптовая", "входн",
     "цена закуп", "price cost", "цена,", "цена ",
 )
-# Объёмные/ступенчатые цены B2B: «-I- от 6000р.», «до 50000 руб.»
 _PRICE_TIER_HINTS = (
     "руб", "р.", "₽", "rub", "price", "цен",
     "от ", "до ", "-i-", "-ii-", "-iii-", "-iv-",
@@ -26,48 +22,26 @@ _SELL_KEYWORDS = (
 _QTY_KEYWORDS = (
     "остаток", "количест", "qty", "stock", "available", "кол. в", "кол в уп",
 )
-# Точно НЕ цена
 _COST_NEGATIVE = (
     "артикул", "sku", "barcode", "штрих", "категор", "бренд",
     "остаток", "кол-во", "количество", "кол. в", "кол в уп",
-    "ед.", "ед ", "единиц", "unit", "изм",  # единица измерения
+    "ед.", "ед ", "единиц", "unit", "изм",
     "код", "№", "номер",
 )
 
 
-def read_table(
-    file_bytes: bytes,
-    file_name: str,
-    *,
-    header: int | None = None,
-    nrows: int | None = None,
-) -> pd.DataFrame:
+def read_table(file_bytes: bytes, file_name: str, *, header: int | None = None, nrows: int | None = None) -> pd.DataFrame:
     name = (file_name or "").lower()
     buffer = io.BytesIO(file_bytes)
-
     if name.endswith(".csv"):
         return pd.read_csv(buffer, header=header, nrows=nrows)
-
     if name.endswith(".xls") and not name.endswith(".xlsx"):
         try:
-            return pd.read_excel(
-                buffer, header=header, nrows=nrows, engine="xlrd"
-            )
+            return pd.read_excel(buffer, header=header, nrows=nrows, engine="xlrd")
         except ImportError as e:
-            raise RuntimeError(
-                "Для файлов .xls установите пакет xlrd>=2.0.1 "
-                "(pip install xlrd). Либо сохраните прайс как .xlsx."
-            ) from e
-        except Exception as e:
-            raise RuntimeError(
-                f"Не удалось прочитать .xls: {e}. "
-                "Попробуйте открыть файл в Excel и сохранить как .xlsx."
-            ) from e
-
+            raise RuntimeError("Install xlrd>=2.0.1 for .xls files") from e
     try:
-        return pd.read_excel(
-            buffer, header=header, nrows=nrows, engine="openpyxl"
-        )
+        return pd.read_excel(buffer, header=header, nrows=nrows, engine="openpyxl")
     except Exception:
         buffer.seek(0)
         return pd.read_excel(buffer, header=header, nrows=nrows)
@@ -75,7 +49,8 @@ def read_table(
 
 def _norm(s: object) -> str:
     text = str(s) if s is not None else ""
-    text = text.replace("\n", " ").replace("\r", " ")
+    text = text.replace("
+", " ").replace("", " ")
     text = re.sub(r"\s+", " ", text).strip().lower()
     return text
 
@@ -86,7 +61,6 @@ def resolve_column(df: pd.DataFrame, wanted: str | None) -> str | None:
     wanted_norm = _norm(wanted)
     if wanted_norm in ("", "nan", "none", "null", "unnamed"):
         return None
-
     cols = list(df.columns)
     for col in cols:
         if str(col) == wanted:
@@ -105,7 +79,6 @@ def resolve_column(df: pd.DataFrame, wanted: str | None) -> str | None:
 
 def _is_unit_column(col_name: object) -> bool:
     n = _norm(col_name)
-    # «Ед.», «Ед. изм.», «Unit» — не цена
     if n in ("ед", "ед.", "ед.изм", "ед. изм.", "unit", "uom"):
         return True
     if n.startswith("ед.") or n.startswith("ед "):
@@ -132,7 +105,6 @@ def _score_column(col_name: object, keywords: tuple[str, ...], negative: tuple[s
 
 
 def _score_price_column(col_name: object) -> int:
-    """Оценка колонки как цены (в т.ч. ступенчатый B2B-прайс)."""
     n = _norm(col_name)
     if not n or n.startswith("unnamed") or n in ("nan", "none"):
         return -100
@@ -141,7 +113,6 @@ def _score_price_column(col_name: object) -> int:
     for bad in _COST_NEGATIVE:
         if bad in n and "цен" not in n and "руб" not in n:
             return -50
-
     score = 0
     for kw in _COST_KEYWORDS:
         if kw in n:
@@ -149,15 +120,12 @@ def _score_price_column(col_name: object) -> int:
     for kw in _PRICE_TIER_HINTS:
         if kw in n:
             score += 8
-
-    # «-I- от 6000р. до 25000р.» — типичный опт
     if re.search(r"\d+\s*р", n) or re.search(r"\d+\s*руб", n):
         score += 20
-    if re.search(r"-i+-|-ii+-|-iii+-|-iv+-", n) or re.search(r"\bi+\b|\bii+\b|\biii+\b", n):
+    if re.search(r"-i+-|-ii+-|-iii+-|-iv+-", n) or re.search(r"i+|ii+|iii+", n):
         score += 12
     if "от " in n and "до " in n:
         score += 10
-
     return score
 
 
@@ -165,25 +133,20 @@ def detect_columns_by_keywords(df: pd.DataFrame) -> dict[str, str | None]:
     cols = list(df.columns)
     product = cost = sell = qty = None
     best_p = best_c = best_s = best_q = -1
-
     for col in cols:
         sp = _score_column(col, _PRODUCT_KEYWORDS)
         if sp > best_p:
             best_p, product = sp, col
-
         sc = _score_price_column(col)
         if sc > best_c:
             best_c, cost = sc, col
-
         ss = _score_column(col, _SELL_KEYWORDS)
         if ss > best_s:
             best_s, sell = ss, col
-
         sq = _score_column(col, _QTY_KEYWORDS, ("единиц",))
         if sq > best_q:
             best_q, qty = sq, col
 
-    # Если лучшая «цена» слабая — взять колонку с максимальной долей чисел в данных
     if best_c < 8 and len(df) > 0:
         best_numeric = -1.0
         numeric_col = None
@@ -194,13 +157,12 @@ def detect_columns_by_keywords(df: pd.DataFrame) -> dict[str, str | None]:
             if any(b in n for b in ("артикул", "sku", "код", "наимен", "назван", "категор")):
                 continue
             series = df[col]
-            ok = 0
-            total = 0
+            ok = total = 0
             for v in series.head(30):
                 if v is None or (isinstance(v, float) and pd.isna(v)):
                     continue
                 total += 1
-                s = str(v).replace(" ", "").replace("\xa0", "").replace(",", ".")
+                s = str(v).replace(" ", "").replace(" ", "").replace(",", ".")
                 s = re.sub(r"[^\d.]", "", s)
                 try:
                     if s and float(s) > 0:
@@ -259,16 +221,13 @@ def find_header_row(df_preview: pd.DataFrame, max_scan: int = 15) -> int:
     return best_idx
 
 
-
 def list_price_tier_columns(df) -> list[str]:
-    """Колонки-кандидаты в цену (ступени опта и обычные цены), по убыванию score."""
     scored = []
     for col in df.columns:
         sc = _score_price_column(col)
         if sc >= 8:
             scored.append((sc, str(col)))
     scored.sort(key=lambda x: -x[0])
-    # уникальные имена
     seen = set()
     out = []
     for _, name in scored:
@@ -278,9 +237,7 @@ def list_price_tier_columns(df) -> list[str]:
     return out
 
 
-
 def detect_weight_column(df) -> str | None:
-    """Колонка веса в кг (вес, weight, кг, kg)."""
     best, score = None, 0
     for col in df.columns:
         n = str(col).strip().lower().replace("ё", "е")
@@ -288,7 +245,7 @@ def detect_weight_column(df) -> str | None:
         if any(x in n for x in ("вес", "weight", "кг", "kg", "масса")):
             sc += 15
         if "г." in n or n.endswith(" г") or "грамм" in n:
-            sc += 5  # граммы — тоже, пересчитаем /1000
+            sc += 5
         if sc > score:
             score, best = sc, str(col)
     return best if score >= 15 else None

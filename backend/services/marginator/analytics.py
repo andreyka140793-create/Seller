@@ -1,3 +1,4 @@
+"""Analytics and summary generation."""
 import pandas as pd
 from pydantic import BaseModel
 
@@ -33,11 +34,7 @@ class AnalyticsService:
 
         top_df = df_results.sort_values(by="Чистая прибыль, ₽", ascending=False).head(3)
         top_profitable = [
-            {
-                "name": row["Товар"],
-                "profit": row["Чистая прибыль, ₽"],
-                "margin": row.get(margin_col, 0),
-            }
+            {"name": row["Товар"], "profit": row["Чистая прибыль, ₽"], "margin": row.get(margin_col, 0)}
             for _, row in top_df.iterrows()
         ]
 
@@ -66,30 +63,39 @@ class AnalyticsService:
     @staticmethod
     def format_summary_message(summary: BatchSummary) -> str:
         text = (
-            f"📊 **Итог по партии**\n"
-            f"───────────────────\n"
-            f"• **Товаров:** `{summary.total_items}`\n"
-            f"• **Выручка:** `{summary.total_revenue:,.2f} ₽`\n"
-            f"• **Маржа (до налога):** `{summary.total_margin:,.2f} ₽`\n"
-            f"• **Чистая прибыль:** `{summary.total_profit:,.2f} ₽`\n"
-            f"• **Маржинальность:** `{summary.avg_margin_pct}%`\n"
-            f"• **Рентабельность чистая:** `{summary.avg_net_margin_pct}%`\n\n"
+            f"📊 **Итог по партии**
+"
+            f"───────────────────
+"
+            f"• **Товаров:** `{summary.total_items}`
+"
+            f"• **Выручка:** `{summary.total_revenue:,.2f} ₽`
+"
+            f"• **Маржа (до налога):** `{summary.total_margin:,.2f} ₽`
+"
+            f"• **Чистая прибыль:** `{summary.total_profit:,.2f} ₽`
+"
+            f"• **Маржинальность:** `{summary.avg_margin_pct}%`
+"
+            f"• **Рентабельность чистая:** `{summary.avg_net_margin_pct}%`
+
+"
         )
-        text += "🏆 **Топ-3 по чистой прибыли:**\n"
+        text += "🏆 **Топ-3 по чистой прибыли:**
+"
         for i, item in enumerate(summary.top_profitable, 1):
-            text += (
-                f"{i}. {item['name']} — `{item['profit']:,.2f} ₽` "
-                f"(марж. `{item['margin']}%`)\n"
-            )
+            text += f"{i}. {item['name']} — `{item['profit']:,.2f} ₽` (марж. `{item['margin']}%`)
+"
         if summary.unprofitable_count > 0:
-            text += (
-                f"\n⚠️ **Зона риска (маржинальность < 5%):** "
-                f"`{summary.unprofitable_count}` шт.\n"
-            )
+            text += f"
+⚠️ **Зона риска (маржинальность < 5%):** `{summary.unprofitable_count}` шт.
+"
             for item in summary.risk_items:
-                text += f"• {item['name']} — `{item['margin']}%`\n"
+                text += f"• {item['name']} — `{item['margin']}%`
+"
         text += (
-            "\n_Маржа ₽ = выручка − переменные; "
+            "
+_Маржа ₽ = выручка − переменные; "
             "маржинальность = маржа/выручка; "
             "наценка = маржа/переменные; "
             "чистая = маржа − налог._"

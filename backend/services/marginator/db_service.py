@@ -1,3 +1,4 @@
+"""Database service layer with atomic transactions."""
 import pandas as pd
 from sqlalchemy.orm import Session, joinedload
 import models
@@ -12,14 +13,12 @@ class MarginatorDBService:
         calc_mode: str,
         df_results: pd.DataFrame,
     ) -> models.PriceUpload:
-        """Создаёт/находит пользователя, сохраняет загрузку и позиции."""
         telegram_id = int(telegram_id)
         user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
         if not user:
             user = models.User(telegram_id=telegram_id)
             db.add(user)
-            db.commit()
-            db.refresh(user)
+            db.flush()
 
         total_revenue = float(df_results["Выручка, ₽"].sum()) if "Выручка, ₽" in df_results.columns else 0.0
         total_profit = float(df_results["Чистая прибыль, ₽"].sum()) if "Чистая прибыль, ₽" in df_results.columns else 0.0
@@ -33,8 +32,7 @@ class MarginatorDBService:
             total_profit=round(total_profit, 2),
         )
         db.add(upload_record)
-        db.commit()
-        db.refresh(upload_record)
+        db.flush()
 
         db_items = []
         for _, row in df_results.iterrows():
@@ -73,9 +71,10 @@ class MarginatorDBService:
             )
 
         if db_items:
-            db.bulk_save_objects(db_items)
-            db.commit()
+            db.add_all(db_items)
 
+        db.commit()
+        db.refresh(upload_record)
         return upload_record
 
     @staticmethod
@@ -94,17 +93,12 @@ class MarginatorDBService:
 
     @staticmethod
     def get_upload_with_items(db: Session, upload_id: int):
-        """Загрузка + user + items одним запросом."""
         return (
             db.query(models.PriceUpload)
-            .options(
-                joinedload(models.PriceUpload.user),
-                joinedload(models.PriceUpload.items),
-            )
+            .options(joinedload(models.PriceUpload.user), joinedload(models.PriceUpload.items))
             .filter(models.PriceUpload.id == int(upload_id))
             .first()
         )
-
 
     @staticmethod
     def get_or_create_user(db: Session, telegram_id: int) -> models.User:
@@ -133,7 +127,6 @@ class MarginatorDBService:
     @staticmethod
     def save_preset(db: Session, telegram_id: int, name: str, data: dict) -> models.UserPreset:
         user = MarginatorDBService.get_or_create_user(db, telegram_id)
-        # limit 8 presets — удаляем самые старые
         existing = (
             db.query(models.UserPreset)
             .filter(models.UserPreset.user_id == user.id)
@@ -143,6 +136,7 @@ class MarginatorDBService:
         if len(existing) >= 8:
             for old in existing[7:]:
                 db.delete(old)
+
         preset = models.UserPreset(
             user_id=user.id,
             name=(name or "Пресет")[:64],
@@ -151,9 +145,11 @@ class MarginatorDBService:
             logistics_cost=float(data.get("logistics_cost", 120) or 120),
             packaging_cost=float(data.get("packaging_cost", 30) or 30),
             tax_rate_percent=float(data.get("tax_rate_percent", 6) or 6),
+            tax_mode=data.get("tax_mode", "usn_6"),
             freight_cost=float(data.get("freight_cost", 0) or 0),
             manager_bonus_percent=float(data.get("manager_bonus_percent", 0) or 0),
             is_vat_included=bool(data.get("is_vat_included", True)),
+            vat_rate_percent=float(data.get("vat_rate_percent", 20) or 20),
             target_margin_percent=(
                 float(data["target_margin_percent"])
                 if data.get("target_margin_percent") is not None
