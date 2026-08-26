@@ -1,5 +1,5 @@
 """SQLAlchemy models."""
-from sqlalchemy import Column, Integer, BigInteger, String, Float, Boolean, ForeignKey, DateTime, Text, Index
+from sqlalchemy import Column, Integer, BigInteger, String, Float, Boolean, ForeignKey, DateTime, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
@@ -69,8 +69,3 @@ class AnalyzedItem(Base):
     is_profitable = Column(Boolean, default=False)
 
     upload = relationship("PriceUpload", back_populates="items")
-
-
-# Additional indexes for performance
-Index("ix_analyzed_items_upload_id", AnalyzedItem.upload_id)
-Index("ix_price_uploads_user_id_created", PriceUpload.user_id, PriceUpload.created_at.desc())
