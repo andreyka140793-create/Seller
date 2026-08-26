@@ -22,6 +22,8 @@ from keyboards.marginator_keyboards import (
     get_params_keyboard_with_presets,
     get_price_col_keyboard,
     get_target_margin_keyboard,
+    get_whatif_keyboard,
+    MP_TEMPLATES,
 )
 from database import SessionLocal
 from services.marginator.parser import ExcelParserService
@@ -77,26 +79,18 @@ async def _load_file_bytes_from_state(data: dict) -> bytes | None:
 
 @marginator_router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
-    data = await state.get_data()
-    _cleanup_temp_file(data.get("file_path"))
     await state.clear()
-
     await message.answer(
-        "👋 **Привет! Я бот-маржинатор Trade Agent.**\n\n"
-        "Я умею рассчитывать чистую прибыль, маржу и ROI для товаров на маркетплейсах и B2B.\n\n"
-        "📌 **Как со мной работать:**\n"
-        "1. Выберите режим расчёта.\n"
-        "2. Отправьте прайс: Excel, CSV, TXT, Word, PDF или фото.\n"
-        "3. Задайте финансовые параметры.\n"
-        "4. Получите Excel-отчёт и интерактивный дашборд.\n\n"
-        "Команды:\n"
-        "• `/history` — прошлые расчёты\n"
-        "• `/help` — формат файлов\n"
-        "• `/run` — запуск расчёта (после настройки параметров)",
-        reply_markup=get_mode_keyboard(),
-        parse_mode="Markdown",
+        "👋 Добро пожаловать в Маржинатор!\n\n"
+        "Считаю маржу, маржинальность, наценку, чистую прибыль и ROI "
+        "(маркетплейс / B2B).\n"
+        "Подробнее — «📖 Помощь».\n\n"
+        "Выберите режим или «🔄 Новый расчёт».",
+        reply_markup=get_main_reply_keyboard(),
     )
+    await message.answer("Режим расчёта:", reply_markup=get_mode_keyboard())
     await state.set_state(CalcState.select_mode)
+
 
 
 @marginator_router.message(Command("help"))
@@ -113,7 +107,9 @@ async def cmd_help(message: Message):
         "• ROI % — чистая прибыль / вложения в товар\n\n"
         "Форматы: xlsx, xls, csv, txt, docx, pdf, jpg/png\n"
         f"Макс. размер: {max_mb} МБ\n\n"
-        "Кнопки внизу: Новый расчёт, История, Помощь"
+        "Кнопки внизу: Новый расчёт, История, Помощь, Отмена\n\n"
+        "Шаблоны WB≈/Ozon≈/ЯМ≈ — только ориентиры, не тарифы МП.\n"
+        "После отчёта: «Комиссия ±2%» — быстрый пересчёт."
     )
     await message.answer(text)
 
@@ -268,7 +264,9 @@ async def prompt_parameter_setup(message: Message, state: FSMContext):
     else:
         await message.answer(
             "⚙️ Финансовые параметры\n"
-            "Пресет, по умолчанию или вручную:",
+            "Пресет, по умолчанию, шаблон МП или вручную.\n\n"
+            "⚠️ Кнопки WB≈ / Ozon≈ / ЯМ≈ — примерные ориентиры, "
+            "не актуальные тарифы площадок. Точные % — из вашего кабинета.",
             reply_markup=kb,
         )
     await state.set_state(CalcState.input_commission)
@@ -701,6 +699,61 @@ async def execute_calculation_cb(callback: CallbackQuery, state: FSMContext):
     await execute_calculation(_Msg(callback.message, callback.from_user), state)
 
 
+
+@marginator_router.callback_query(F.data == "cancel_flow")
+async def cancel_flow_cb(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.answer("Отменено")
+    try:
+        await callback.message.edit_text("Расчёт отменён.")
+    except Exception:
+        pass
+    await callback.message.answer(
+        "Можно начать заново.",
+        reply_markup=get_main_reply_keyboard(),
+    )
+    await callback.message.answer("Режим:", reply_markup=get_mode_keyboard())
+    await state.set_state(CalcState.select_mode)
+
+
+@marginator_router.message(F.text.in_({"❌ Отмена", "Отмена", "/cancel"}))
+async def cancel_flow_text(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer(
+        "Отменено. Нажмите «Новый расчёт» или выберите режим.",
+        reply_markup=get_main_reply_keyboard(),
+    )
+    await message.answer("Режим:", reply_markup=get_mode_keyboard())
+    await state.set_state(CalcState.select_mode)
+
+
+@marginator_router.callback_query(F.data.startswith("tpl_"))
+async def apply_mp_template(callback: CallbackQuery, state: FSMContext):
+    key = (callback.data or "").replace("tpl_", "")
+    tpl = MP_TEMPLATES.get(key)
+    if not tpl:
+        await callback.answer("Шаблон не найден", show_alert=True)
+        return
+    await state.update_data(
+        calc_mode="marketplace",
+        commission_percent=tpl["commission_percent"],
+        logistics_cost=tpl["logistics_cost"],
+        packaging_cost=tpl["packaging_cost"],
+        tax_rate_percent=tpl["tax_rate_percent"],
+    )
+    await callback.answer(tpl["label"])
+    await callback.message.edit_text(
+        f"✅ Шаблон «{tpl['label']}»\n\n"
+        f"• Комиссия {tpl['commission_percent']}%\n"
+        f"• Логистика {tpl['logistics_cost']} ₽\n"
+        f"• Упаковка {tpl['packaging_cost']} ₽\n"
+        f"• Налог (УСН) {tpl['tax_rate_percent']}%\n\n"
+        "⚠️ Это ориентир для старта, не тариф маркетплейса.\n"
+        "Подставьте свои цифры из кабинета МП или сохраните пресет."
+    )
+    await prompt_target_margin(callback.message, state)
+
+
 @marginator_router.callback_query(F.data == "new_calc")
 async def new_calc_cb(callback: CallbackQuery, state: FSMContext):
     await state.clear()
@@ -846,7 +899,8 @@ async def execute_calculation(message: Message, state: FSMContext):
         bonus = float(data.get("manager_bonus_percent", 0.0))
         vat = bool(data.get("is_vat_included", True))
 
-        for _, row in df.iterrows():
+        total_rows = len(df)
+        for n, (_, row) in enumerate(df.iterrows(), 1):
             try:
                 raw_name = row.get(product_col)
                 product_name = str(raw_name).strip() if pd.notna(raw_name) else ""
@@ -902,6 +956,14 @@ async def execute_calculation(message: Message, state: FSMContext):
                     if mp is not None:
                         row_out[f"Мин. цена для маржи {tgt:g}%"] = mp
                 results.append(row_out)
+
+                if n == 1 or n % 250 == 0 or n == total_rows:
+                    try:
+                        await status_msg.edit_text(
+                            f"📊 Считаю… {n}/{total_rows}"
+                        )
+                    except Exception:
+                        pass
             except Exception:
                 continue
     else:
@@ -913,7 +975,8 @@ async def execute_calculation(message: Message, state: FSMContext):
         packaging_cost = float(data.get("packaging_cost", PurchasingConfig.DEFAULT_PACKAGING_RUB))
         tax_rate_percent = float(data.get("tax_rate_percent", PurchasingConfig.DEFAULT_TAX_PCT))
 
-        for _, row in df.iterrows():
+        total_rows = len(df)
+        for n, (_, row) in enumerate(df.iterrows(), 1):
             try:
                 raw_name = row.get(product_col)
                 product_name = str(raw_name).strip() if pd.notna(raw_name) else ""
@@ -973,6 +1036,14 @@ async def execute_calculation(message: Message, state: FSMContext):
                     if mp is not None:
                         row_out[f"Мин. цена для маржи {tgt:g}%"] = mp
                 results.append(row_out)
+
+                if n == 1 or n % 250 == 0 or n == total_rows:
+                    try:
+                        await status_msg.edit_text(
+                            f"📊 Считаю… {n}/{total_rows}"
+                        )
+                    except Exception:
+                        pass
             except Exception:
                 continue
 
@@ -1023,8 +1094,48 @@ async def execute_calculation(message: Message, state: FSMContext):
         parse_mode="Markdown",
     )
 
-    _cleanup_temp_file(data.get("file_path"))
-    await state.clear()
+    # Файл на диске можно удалить, но mapping/params оставляем для «что если»
+    # (повторный расчёт с другой комиссией)
+    await state.update_data(last_upload_id=upload_id)
+    await state.set_state(CalcState.confirm_params)
+
+
+
+@marginator_router.callback_query(F.data.startswith("whatif_comm_"))
+async def whatif_commission(callback: CallbackQuery, state: FSMContext):
+    """Пересчёт с изменённой комиссией, не загружая файл заново."""
+    data = await state.get_data()
+    if "mapping" not in data and not data.get("file_path"):
+        await callback.answer(
+            "Нет данных прошлого расчёта. Сделайте новый расчёт.",
+            show_alert=True,
+        )
+        return
+    raw = callback.data or "whatif_comm_0"
+    try:
+        delta = float(raw.replace("whatif_comm_", "").replace("+", ""))
+    except Exception:
+        delta = 0.0
+    mode = data.get("calc_mode", "marketplace")
+    if mode == "b2b":
+        await callback.answer("«Что если» по комиссии — только для маркетплейса", show_alert=True)
+        return
+    old = float(data.get("commission_percent", 15) or 15)
+    new = max(0.0, min(80.0, old + delta))
+    await state.update_data(commission_percent=new)
+    await callback.answer(f"Комиссия {old:g}% → {new:g}%")
+    await callback.message.answer(f"Пересчитываю с комиссией **{new:g}%**…", parse_mode="Markdown")
+
+    class _Msg:
+        def __init__(self, message, user):
+            self.from_user = user
+            self.chat = message.chat
+            self.answer = message.answer
+            self.answer_document = message.answer_document
+            self.bot = message.bot
+            self.message_id = message.message_id
+
+    await execute_calculation(_Msg(callback.message, callback.from_user), state)
 
 
 # --- /history ---
