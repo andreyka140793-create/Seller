@@ -98,15 +98,20 @@ async def cmd_start(message: Message, state: FSMContext):
 @marginator_router.message(Command("help"))
 async def cmd_help(message: Message):
     max_mb = MAX_FILE_SIZE_BYTES // (1024 * 1024)
-    await message.answer(
-        "📖 **Инструкция по загрузке прайс-листов:**\n\n"
-        "• Столбцы распознаются эвристикой + Grok (xAI).\n"
-        "• Желательно: **название товара** и **закупочная цена**.\n"
-        "• Форматы: Excel (xlsx/xls), CSV, TXT, Word (docx), PDF, фото (jpg/png).\n"
-        "• PDF — с текстовым слоем; сканы лучше как скриншот.\n"
-        f"• Максимальный размер: **{max_mb} МБ**.",
-        parse_mode="Markdown",
+    text = (
+        "Справка Маржинатор\n\n"
+        "Показатели:\n"
+        "• Маржа, руб — выручка минус переменные (закуп, комиссия, логистика, упаковка)\n"
+        "• Маржинальность % — маржа / выручка x 100\n"
+        "• Наценка % — маржа / переменные x 100 (может быть больше 100%)\n"
+        "• Чистая прибыль, руб — маржа минус налог\n"
+        "• Рентабельность чистая % — чистая прибыль / выручка\n"
+        "• ROI % — чистая прибыль / вложения в товар\n\n"
+        "Форматы: xlsx, xls, csv, txt, docx, pdf, jpg/png\n"
+        f"Макс. размер: {max_mb} МБ\n\n"
+        "Кнопки внизу: Новый расчёт, История, Помощь"
     )
+    await message.answer(text)
 
 
 # ---
@@ -717,8 +722,12 @@ async def execute_calculation(message: Message, state: FSMContext):
                     "Товар": item.product_name,
                     "Себестоимость, ₽": item.cost_price,
                     "Выручка, ₽": res.revenue,
-                    "Чистая прибыль, ₽": res.net_profit,
+                    "Переменные расходы, ₽": res.variable_costs,
+                    "Маржа, ₽": res.margin_rub,
                     "Маржинальность %": res.margin_percent,
+                    "Наценка %": res.markup_percent,
+                    "Чистая прибыль, ₽": res.net_profit,
+                    "Рентабельность чистая %": res.net_margin_percent,
                     "ROI %": res.roi_percent,
                 })
             except Exception:
@@ -772,8 +781,12 @@ async def execute_calculation(message: Message, state: FSMContext):
                     "Товар": item.product_name,
                     "Себестоимость, ₽": item.cost_price,
                     "Выручка, ₽": res.revenue,
-                    "Чистая прибыль, ₽": res.net_profit,
+                    "Переменные расходы, ₽": res.variable_costs,
+                    "Маржа, ₽": res.margin_rub,
                     "Маржинальность %": res.margin_percent,
+                    "Наценка %": res.markup_percent,
+                    "Чистая прибыль, ₽": res.net_profit,
+                    "Рентабельность чистая %": res.net_margin_percent,
                     "ROI %": res.roi_percent,
                 })
             except Exception:
@@ -909,6 +922,7 @@ async def download_archived_report(callback: CallbackQuery):
                     "Выручка, ₽": item.est_sell_price,
                     "Чистая прибыль, ₽": item.net_profit,
                     "Маржинальность %": item.margin_pct,
+                    "Рентабельность чистая %": item.margin_pct,
                     "ROI %": item.roi_pct,
                 }
                 for item in items
