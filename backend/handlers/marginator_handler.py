@@ -295,7 +295,8 @@ async def prompt_mapping_confirm(message: Message, state: FSMContext, mapping):
         f"• Товар: {product or '—'}\n"
         f"• Себестоимость: {cost or '—'}\n"
         f"• Цена продажи: {sell or '—'}\n"
-        f"• Количество: {qty or '—'}\n\n"
+        f"• Количество: {qty or '—'}\n"
+        f"• Вес: {(mapping.get('weight_col') if isinstance(mapping, dict) else getattr(mapping, 'weight_col', None)) or '—'}\n\n"
         "Если бот ошибся — «Изменить колонки».",
         reply_markup=get_mapping_confirm_keyboard(),
     )
@@ -438,7 +439,7 @@ async def process_commission_input(message: Message, state: FSMContext):
             raise ValueError
         await state.update_data(commission_percent=val)
         await message.answer(
-            "2️⃣ **Введите среднюю логистику на единицу в ₽** (например, `80`):",
+            "2️⃣ **Логистика:** фикс в ₽ на шт (`80`) или от веса (`25/кг`):",
             reply_markup=get_skip_keyboard(),
             parse_mode="Markdown",
         )
@@ -450,10 +451,22 @@ async def process_commission_input(message: Message, state: FSMContext):
 @marginator_router.message(CalcState.input_logistics)
 async def process_logistics_input(message: Message, state: FSMContext):
     try:
-        val = float(message.text.replace(",", "."))
-        if val < 0:
-            raise ValueError
-        await state.update_data(logistics_cost=val)
+        raw = (message.text or "").strip().lower().replace(",", ".")
+        per_kg = None
+        val = None
+        if "/кг" in raw or "за кг" in raw or "/kg" in raw:
+            num = raw.replace("/кг", " ").replace("за кг", " ").replace("/kg", " ")
+            import re as _re
+            m = _re.search(r"[0-9]+(?:\.[0-9]+)?", num)
+            if not m:
+                raise ValueError
+            per_kg = float(m.group(0))
+            await state.update_data(logistics_per_kg=per_kg, logistics_cost=0.0)
+        else:
+            val = float(raw)
+            if val < 0:
+                raise ValueError
+            await state.update_data(logistics_cost=val, logistics_per_kg=None)
         await message.answer(
             "3️⃣ **Введите стоимость упаковки на единицу в ₽** (например, `30`):",
             reply_markup=get_skip_keyboard(),
@@ -553,7 +566,7 @@ async def skip_optional_param(callback: CallbackQuery, state: FSMContext):
     if current_state == CalcState.input_commission.state:
         await state.update_data(commission_percent=0.0)
         await callback.message.edit_text(
-            "2️⃣ **Введите среднюю логистику на единицу в ₽** (например, `80`):",
+            "2️⃣ **Логистика:** фикс в ₽ на шт (`80`) или от веса (`25/кг`):",
             reply_markup=get_skip_keyboard(),
             parse_mode="Markdown",
         )
@@ -664,6 +677,7 @@ async def mapping_pick_field(callback: CallbackQuery, state: FSMContext):
         "cost": "себестоимость",
         "sell": "цену продажи",
         "qty": "количество",
+        "weight": "вес (кг)",
     }
     await callback.answer()
     await callback.message.edit_text(
@@ -690,6 +704,7 @@ async def mapping_pick_col(callback: CallbackQuery, state: FSMContext):
         "cost": "cost_price_col",
         "sell": "selling_price_col",
         "qty": "quantity_col",
+        "weight": "weight_col",
     }
     mk = key_map.get(field)
     if mk:
@@ -1232,7 +1247,31 @@ async def execute_calculation(message: Message, state: FSMContext):
                     if q >= 1:
                         qty = int(q)
 
-                item = BaseItem(product_name=product_name, cost_price=cost_price, quantity=qty)
+                weight_kg = None
+                wcol = data.get("mapping", {})
+                if isinstance(wcol, dict):
+                    wcol = wcol.get("weight_col")
+                else:
+                    wcol = getattr(wcol, "weight_col", None) if wcol else None
+                if not wcol:
+                    from services.marginator.file_io import detect_weight_column
+                    wcol = detect_weight_column(df)
+                if wcol:
+                    wcol_r = resolve_column(df, wcol)
+                    if wcol_r:
+                        wv = clean_numeric_value(row.get(wcol_r))
+                        # если похоже на граммы (> 50 и колонка без "кг")
+                        if wv > 0:
+                            if wv > 50 and wcol_r and "кг" not in str(wcol_r).lower() and "kg" not in str(wcol_r).lower():
+                                weight_kg = wv / 1000.0
+                            else:
+                                weight_kg = wv
+                item = BaseItem(
+                    product_name=product_name,
+                    cost_price=cost_price,
+                    quantity=qty,
+                    weight_kg=weight_kg,
+                )
 
                 if sell_col:
                     selling_price = clean_numeric_value(row.get(sell_col))
@@ -1245,6 +1284,11 @@ async def execute_calculation(message: Message, state: FSMContext):
                     selling_price=selling_price,
                     commission_percent=commission_percent,
                     logistics_cost=logistics_cost,
+                    logistics_per_kg=(
+                        float(data["logistics_per_kg"])
+                        if data.get("logistics_per_kg") is not None
+                        else None
+                    ),
                     packaging_cost=packaging_cost,
                     tax_rate_percent=tax_rate_percent,
                 )
@@ -1302,6 +1346,13 @@ async def execute_calculation(message: Message, state: FSMContext):
 
     df_results = pd.DataFrame(results)
 
+    try:
+        last_path = _UPLOAD_ROOT / f"last_results_{message.from_user.id}.csv"
+        df_results.to_csv(last_path, index=False)
+        await state.update_data(last_results_path=str(last_path))
+    except Exception:
+        pass
+
     with SessionLocal() as db:
         upload_record = MarginatorDBService.save_calculation_results(
             db=db,
@@ -1336,6 +1387,71 @@ async def execute_calculation(message: Message, state: FSMContext):
     await state.update_data(last_upload_id=upload_id)
     await state.set_state(CalcState.confirm_params)
 
+
+
+
+
+@marginator_router.callback_query(F.data == "fx_setup")
+async def fx_setup_start(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.answer(
+        "💱 Курс для пересчёта закупа в ₽\\n\\n"
+        "Примеры:\\n"
+        "• `95` — просто курс (валюта файла × 95)\\n"
+        "• `USD 92.5` или `CNY 13.2`\\n"
+        "• `1` — цены уже в рублях\\n\\n"
+        "Отправьте число или код и курс одним сообщением."
+    )
+    await state.set_state(CalcState.input_fx_rate)
+
+
+@marginator_router.message(CalcState.input_fx_rate)
+async def process_fx_rate(message: Message, state: FSMContext):
+    import re as _re
+    raw = (message.text or "").strip().upper().replace(",", ".")
+    code = "FX"
+    m = _re.match(r"([A-Z]{3})\\s*([0-9]+(?:\\.[0-9]+)?)", raw)
+    if m:
+        code, rate_s = m.group(1), m.group(2)
+        rate = float(rate_s)
+    else:
+        m2 = _re.search(r"[0-9]+(?:\\.[0-9]+)?", raw)
+        if not m2:
+            await message.answer("Не понял курс. Пример: 92.5 или USD 92.5")
+            return
+        rate = float(m2.group(0))
+    if rate <= 0:
+        await message.answer("Курс должен быть > 0")
+        return
+    await state.update_data(fx_rate=rate, fx_code=code)
+    await message.answer(
+        f"✅ Курс: 1 {code} = {rate} ₽\\n"
+        "Закуп в файле будет умножен на этот курс."
+    )
+    # вернёмся к параметрам
+    await prompt_parameter_setup(message, state)
+
+
+@marginator_router.callback_query(F.data == "export_buy_list")
+async def export_buy_list_cb(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    path = data.get("last_results_path")
+    if not path or not Path(path).is_file():
+        await callback.answer("Нет последнего расчёта в сессии", show_alert=True)
+        return
+    await callback.answer("Формирую список…")
+    try:
+        df = pd.read_csv(path)
+        from services.marginator.exporter import ExcelExporterService
+        raw = ExcelExporterService.export_buy_list(df, min_roi=30.0)
+        n = len(df[df["ROI %"] >= 30]) if "ROI %" in df.columns else len(df)
+        doc = BufferedInputFile(raw, filename="buy_list_roi30.xlsx")
+        await callback.message.answer_document(
+            doc,
+            caption=f"🛒 К закупке (ROI ≥ 30%): примерно {n} позиций из последнего расчёта.",
+        )
+    except Exception as e:
+        await callback.message.answer(f"Ошибка: {e}")
 
 
 @marginator_router.callback_query(F.data.startswith("whatif_comm_"))
