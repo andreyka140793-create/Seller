@@ -1,6 +1,7 @@
 import pandas as pd
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 import models
+
 
 class MarginatorDBService:
     @staticmethod
@@ -9,12 +10,9 @@ class MarginatorDBService:
         telegram_id: int,
         filename: str,
         calc_mode: str,
-        df_results: pd.DataFrame
+        df_results: pd.DataFrame,
     ) -> models.PriceUpload:
-        """
-        Создает или находит пользователя, фиксирует загрузку и массово сохраняет товары.
-        """
-        # 1. Поиск или создание пользователя
+        """Создаёт/находит пользователя, сохраняет загрузку и позиции."""
         user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
         if not user:
             user = models.User(telegram_id=telegram_id)
@@ -22,47 +20,65 @@ class MarginatorDBService:
             db.commit()
             db.refresh(user)
 
-        # 2. Создание записи о загрузке
-        total_revenue = float(df_results["Выручка, ₽"].sum())
-        total_profit = float(df_results["Чистая прибыль, ₽"].sum())
+        total_revenue = float(df_results["Выручка, ₽"].sum()) if "Выручка, ₽" in df_results.columns else 0.0
+        total_profit = float(df_results["Чистая прибыль, ₽"].sum()) if "Чистая прибыль, ₽" in df_results.columns else 0.0
 
         upload_record = models.PriceUpload(
             user_id=user.id,
-            filename=filename,
-            calc_mode=calc_mode,
+            filename=filename or "price.xlsx",
+            calc_mode=calc_mode or "marketplace",
             status="completed",
             total_revenue=round(total_revenue, 2),
-            total_profit=round(total_profit, 2)
+            total_profit=round(total_profit, 2),
         )
         db.add(upload_record)
         db.commit()
         db.refresh(upload_record)
 
-        # 3. Подготовка и пакетное сохранение расчитанных позиций
         db_items = []
         for _, row in df_results.iterrows():
-            margin_val = float(row["Маржинальность %"])
+            try:
+                margin_val = float(row.get("Маржинальность %", 0) or 0)
+            except Exception:
+                margin_val = 0.0
+            try:
+                buy = float(row.get("Себестоимость, ₽", 0) or 0)
+            except Exception:
+                buy = 0.0
+            try:
+                sell = float(row.get("Выручка, ₽", 0) or 0)
+            except Exception:
+                sell = 0.0
+            try:
+                profit = float(row.get("Чистая прибыль, ₽", 0) or 0)
+            except Exception:
+                profit = 0.0
+            try:
+                roi = float(row.get("ROI %", 0) or 0)
+            except Exception:
+                roi = 0.0
+            title = str(row.get("Товар", "—") or "—")[:2000]
             db_items.append(
                 models.AnalyzedItem(
                     upload_id=upload_record.id,
-                    title=str(row["Товар"]),
-                    buy_price=float(row["Себестоимость, ₽"]),
-                    est_sell_price=float(row["Выручка, ₽"]),
-                    net_profit=float(row["Чистая прибыль, ₽"]),
+                    title=title,
+                    buy_price=buy,
+                    est_sell_price=sell,
+                    net_profit=profit,
                     margin_pct=margin_val,
-                    roi_pct=float(row["ROI %"]),
-                    is_profitable=(margin_val >= 5.0)
+                    roi_pct=roi,
+                    is_profitable=(margin_val >= 5.0),
                 )
             )
 
-        db.bulk_save_objects(db_items)
-        db.commit()
+        if db_items:
+            db.bulk_save_objects(db_items)
+            db.commit()
 
         return upload_record
 
     @staticmethod
-    def get_user_history(db: Session, telegram_id: int, limit: int = 5) -> list[models.PriceUpload]:
-        """Возвращает последние N загрузок пользователя."""
+    def get_user_history(db: Session, telegram_id: int, limit: int = 15) -> list:
         user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
         if not user:
             return []
@@ -75,6 +91,14 @@ class MarginatorDBService:
         )
 
     @staticmethod
-    def get_upload_with_items(db: Session, upload_id: int) -> models.PriceUpload | None:
-        """Получает загрузку со всеми расчитанными позициями."""
-        return db.query(models.PriceUpload).filter(models.PriceUpload.id == upload_id).first()
+    def get_upload_with_items(db: Session, upload_id: int):
+        """Загрузка + user + items одним запросом."""
+        return (
+            db.query(models.PriceUpload)
+            .options(
+                joinedload(models.PriceUpload.user),
+                joinedload(models.PriceUpload.items),
+            )
+            .filter(models.PriceUpload.id == int(upload_id))
+            .first()
+        )
