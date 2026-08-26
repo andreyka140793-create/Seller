@@ -1,17 +1,20 @@
-# backend/config.py
+"""Application configuration."""
+import os
+from typing import Literal
+
 
 class PurchasingConfig:
-    # Минимальные пороги рентабельности
-    MIN_ROI_PCT: float = 35.0          # Минимальный ROI в %
-    MIN_NET_PROFIT_RUB: float = 200.0   # Минимальная прибыль с 1 шт в рублях
-    MIN_SUPPLIER_STOCK: int = 50       # Минимальный остаток на складе
+    # Profitability thresholds
+    MIN_ROI_PCT: float = 35.0
+    MIN_NET_PROFIT_RUB: float = 200.0
+    MIN_SUPPLIER_STOCK: int = 50
 
-    # Стандартные комиссии и расходы (можно переопределять в Mini App / боте)
-    # Значения согласованы между API (/upload-price) и Telegram-ботом
-    DEFAULT_LOGISTICS_RUB: float = 120.0  # Логистика до склада/маркетплейса
-    DEFAULT_PACKAGING_RUB: float = 30.0   # Упаковка и маркировка
-    DEFAULT_MP_COMMISSION_PCT: float = 15.0  # Комиссия маркетплейса (WB/Ozon)
-    DEFAULT_TAX_PCT: float = 6.0          # Налог (УСН "Доходы" 6%)
+    # Default marketplace params
+    DEFAULT_LOGISTICS_RUB: float = 120.0
+    DEFAULT_PACKAGING_RUB: float = 30.0
+    DEFAULT_MP_COMMISSION_PCT: float = 15.0
+    DEFAULT_TAX_PCT: float = 6.0
+    DEFAULT_MARKUP_PCT: float = 100.0
 
-    # Параметры наценки для первичного анализа
-    DEFAULT_MARKUP_PCT: float = 100.0     # Базовая наценка (+100% к закупке)
+    # Tax modes
+    TAX_MODE: Literal["usn_6", "usn_15", "osno_20"] = os.getenv("TAX_MODE", "usn_6")
