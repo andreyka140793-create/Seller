@@ -105,20 +105,27 @@ def get_skip_keyboard() -> InlineKeyboardMarkup:
 
 def get_history_keyboard(uploads: list[models.PriceUpload]) -> InlineKeyboardMarkup:
     buttons = []
-    for u in uploads[:8]:
-        label = (u.filename or f"#{u.id}")[:40]
+    for u in uploads[:12]:
+        name = (u.filename or f"report_{u.id}")[:28]
+        profit = getattr(u, "total_profit", None)
+        suffix = f" · {profit:,.0f}₽" if isinstance(profit, (int, float)) else ""
+        label = f"📄 #{u.id} {name}{suffix}"[:64]
         buttons.append(
-            [InlineKeyboardButton(text=f"📄 {label}", callback_data=f"hist_{u.id}")]
+            [InlineKeyboardButton(text=label, callback_data=f"download_upload_{u.id}")]
         )
     buttons.append([InlineKeyboardButton(text="🔄 Новый расчёт", callback_data="new_calc")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+
 def get_webapp_keyboard(upload_id: int | str | None = None) -> InlineKeyboardMarkup:
     """Кнопки после расчёта: Mini App + новый расчёт."""
-    base = (os.getenv("WEB_APP_URL") or "").rstrip("/")
+    base = (os.getenv("WEB_APP_URL") or "").strip().rstrip("/")
     webapp_url = None
     if base and upload_id is not None:
+        # Telegram открывает именно этот URL. Нужен путь /app к index.html
+        if not base.endswith("/app") and "/app?" not in base and "/app/" not in base:
+            base = base + "/app"
         sep = "&" if "?" in base else "?"
         webapp_url = f"{base}{sep}upload_id={upload_id}"
     return get_after_report_keyboard(webapp_url)
