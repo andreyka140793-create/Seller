@@ -19,6 +19,9 @@ from keyboards.marginator_keyboards import (
     get_run_keyboard,
     get_main_reply_keyboard,
     get_after_report_keyboard,
+    get_params_keyboard_with_presets,
+    get_price_col_keyboard,
+    get_target_margin_keyboard,
 )
 from database import SessionLocal
 from services.marginator.parser import ExcelParserService
@@ -28,6 +31,7 @@ from services.marginator.calculators import (
     B2BCalculator,
     B2BParams,
     BaseItem,
+    min_selling_price_for_margin,
 )
 from services.marginator.exporter import ExcelExporterService
 from services.marginator.db_service import MarginatorDBService
@@ -235,7 +239,7 @@ async def handle_excel_upload(message: Message, state: FSMContext, bot: Bot):
             parse_mode="Markdown",
         )
 
-        await prompt_parameter_setup(message, state)
+        await prompt_price_column_or_params(message, state, mapping)
 
     except Exception as e:
         _cleanup_temp_file(temp_path)
@@ -243,25 +247,66 @@ async def handle_excel_upload(message: Message, state: FSMContext, bot: Bot):
 
 
 async def prompt_parameter_setup(message: Message, state: FSMContext):
-    """После сканирования файла — настройка параметров под выбранный режим."""
+    """Параметры: пресеты пользователя + default + ручной ввод."""
     data = await state.get_data()
     mode = data.get("calc_mode", "marketplace")
+    uid = message.from_user.id if message.from_user else None
+    presets = []
+    if uid:
+        with SessionLocal() as db:
+            presets = MarginatorDBService.list_presets(db, uid)
+            # filter by mode
+            presets = [pr for pr in presets if (pr.calc_mode or "marketplace") == mode]
 
+    kb = get_params_keyboard_with_presets(presets, mode=mode)
     if mode == "b2b":
         await message.answer(
-            "⚙️ **Настройка B2B-параметров**\n\n"
-            "Фрахт (доставка на единицу), бонус менеджера и учёт НДС:",
-            reply_markup=get_b2b_params_keyboard(),
-            parse_mode="Markdown",
+            "⚙️ Настройка B2B-параметров\n"
+            "Пресет, по умолчанию или вручную:",
+            reply_markup=kb,
         )
     else:
         await message.answer(
-            "⚙️ **Настройка финансовых параметров**\n\n"
-            "Стандартные значения или ручной ввод:",
-            reply_markup=get_params_setup_keyboard(),
-            parse_mode="Markdown",
+            "⚙️ Финансовые параметры\n"
+            "Пресет, по умолчанию или вручную:",
+            reply_markup=kb,
         )
     await state.set_state(CalcState.input_commission)
+
+
+async def prompt_price_column_or_params(message: Message, state: FSMContext, mapping):
+    """Если несколько ценовых колонок — спросить, иначе параметры."""
+    from services.marginator.file_io import list_price_tier_columns, read_table
+    data = await state.get_data()
+    file_bytes = await _load_file_bytes_from_state(data)
+    tiers = []
+    if file_bytes:
+        try:
+            df = read_table(file_bytes, data.get("file_name", "f.xlsx"), header=mapping.header_row_index, nrows=5)
+            df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
+            tiers = list_price_tier_columns(df)
+        except Exception:
+            tiers = []
+    await state.update_data(price_tier_columns=tiers)
+    if len(tiers) >= 2:
+        await message.answer(
+            "Найдено несколько колонок с ценой (ступени опта).\n"
+            "Выберите, от какой считать закупку:",
+            reply_markup=get_price_col_keyboard(tiers),
+        )
+        await state.set_state(CalcState.select_price_col)
+    else:
+        await prompt_parameter_setup(message, state)
+
+
+async def prompt_target_margin(message: Message, state: FSMContext):
+    await message.answer(
+        "🎯 Целевая маржинальность %\n"
+        "Посчитаю мин. цену продажи для каждой позиции.\n"
+        "Или пропустите шаг.",
+        reply_markup=get_target_margin_keyboard(),
+    )
+    await state.set_state(CalcState.input_target_margin)
 
 
 # --- Быстрый выбор по умолчанию ---
@@ -282,8 +327,7 @@ async def apply_default_params(callback: CallbackQuery, state: FSMContext):
             "• Фрахт: `0 ₽/ед.`\n"
             "• Бонус менеджера: `0%`\n"
             "• НДС 20%: учтён\n\n"
-            "Нажмите кнопку, чтобы посчитать:",
-            reply_markup=get_run_keyboard(),
+            "Параметры сохранены.",
             parse_mode="Markdown",
         )
     else:
@@ -294,18 +338,15 @@ async def apply_default_params(callback: CallbackQuery, state: FSMContext):
             tax_rate_percent=PurchasingConfig.DEFAULT_TAX_PCT,
         )
         await callback.message.edit_text(
-            f"✅ **Параметры установлены:**\n"
-            f"• Комиссия: `{PurchasingConfig.DEFAULT_MP_COMMISSION_PCT}%`\n"
-            f"• Логистика: `{PurchasingConfig.DEFAULT_LOGISTICS_RUB} ₽/ед.`\n"
-            f"• Упаковка: `{PurchasingConfig.DEFAULT_PACKAGING_RUB} ₽/ед.`\n"
-            f"• Налог (УСН): `{PurchasingConfig.DEFAULT_TAX_PCT}%`\n\n"
-            "Нажмите кнопку, чтобы посчитать:",
-            reply_markup=get_run_keyboard(),
+            f"✅ Параметры: комиссия {PurchasingConfig.DEFAULT_MP_COMMISSION_PCT}%, "
+            f"лог. {PurchasingConfig.DEFAULT_LOGISTICS_RUB}₽, "
+            f"уп. {PurchasingConfig.DEFAULT_PACKAGING_RUB}₽, "
+            f"налог {PurchasingConfig.DEFAULT_TAX_PCT}%",
             parse_mode="Markdown",
         )
 
-    await state.set_state(CalcState.confirm_params)
     await callback.answer()
+    await prompt_target_margin(callback.message, state)
 
 
 # --- Ручной пошаговый ввод (маркетплейс) ---
@@ -397,11 +438,10 @@ async def process_tax_input(message: Message, state: FSMContext):
             f"• Логистика: `{data.get('logistics_cost')} ₽`\n"
             f"• Упаковка: `{data.get('packaging_cost')} ₽`\n"
             f"• Налог: `{data.get('tax_rate_percent')}%`\n\n"
-            "Нажмите кнопку, чтобы посчитать:",
-            reply_markup=get_run_keyboard(),
+            "Параметры приняты.",
             parse_mode="Markdown",
         )
-        await state.set_state(CalcState.confirm_params)
+        await prompt_target_margin(message, state)
     except (ValueError, AttributeError):
         await message.answer("❌ Введите корректную процентную ставку.")
 
@@ -438,11 +478,10 @@ async def process_manager_bonus_input(message: Message, state: FSMContext):
             f"• Фрахт: `{data.get('freight_cost')} ₽`\n"
             f"• Бонус менеджера: `{data.get('manager_bonus_percent')}%`\n"
             f"• НДС 20%: учтён\n\n"
-            "Нажмите кнопку, чтобы посчитать:",
-            reply_markup=get_run_keyboard(),
+            "Параметры приняты.",
             parse_mode="Markdown",
         )
-        await state.set_state(CalcState.confirm_params)
+        await prompt_target_margin(message, state)
     except (ValueError, AttributeError):
         await message.answer("❌ Введите число от 0 до 100.")
 
@@ -489,11 +528,12 @@ async def skip_optional_param(callback: CallbackQuery, state: FSMContext):
             f"• Логистика: `{data.get('logistics_cost', 0.0)} ₽`\n"
             f"• Упаковка: `{data.get('packaging_cost', 0.0)} ₽`\n"
             f"• Налог: `0%`\n\n"
-            "Нажмите кнопку, чтобы посчитать:",
-            reply_markup=get_run_keyboard(),
+            "Параметры приняты.",
             parse_mode="Markdown",
         )
-        await state.set_state(CalcState.confirm_params)
+        await callback.answer()
+        await prompt_target_margin(callback.message, state)
+        return
 
     elif current_state == CalcState.input_freight.state:
         await state.update_data(freight_cost=0.0)
@@ -512,14 +552,134 @@ async def skip_optional_param(callback: CallbackQuery, state: FSMContext):
             f"• Фрахт: `{data.get('freight_cost', 0.0)} ₽`\n"
             f"• Бонус менеджера: `0%`\n"
             f"• НДС 20%: учтён\n\n"
-            "Нажмите кнопку, чтобы посчитать:",
-            reply_markup=get_run_keyboard(),
+            "Параметры приняты.",
             parse_mode="Markdown",
         )
-        await state.set_state(CalcState.confirm_params)
+        await callback.answer()
+        await prompt_target_margin(callback.message, state)
+        return
 
     await callback.answer()
 
+
+
+
+
+# --- Выбор колонки цены (ступени B2B) ---
+
+@marginator_router.callback_query(CalcState.select_price_col, F.data.startswith("price_col_"))
+async def on_price_col_chosen(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    tiers = data.get("price_tier_columns") or []
+    raw = callback.data or ""
+    if raw == "price_col_auto":
+        await callback.answer("Оставляем как определил бот")
+        await callback.message.edit_text("Колонка цены: как определил бот.")
+        await prompt_parameter_setup(callback.message, state)
+        return
+    try:
+        idx = int(raw.split("_")[-1])
+        col = tiers[idx]
+    except Exception:
+        await callback.answer("Ошибка выбора", show_alert=True)
+        return
+    mapping = data.get("mapping") or {}
+    if isinstance(mapping, dict):
+        mapping["cost_price_col"] = col
+    else:
+        mapping = dict(mapping)
+        mapping["cost_price_col"] = col
+    await state.update_data(mapping=mapping)
+    await callback.answer()
+    await callback.message.edit_text(f"Колонка закупки: {col}")
+    await prompt_parameter_setup(callback.message, state)
+
+
+# --- Пресеты ---
+
+@marginator_router.callback_query(F.data.startswith("preset_"))
+async def apply_preset(callback: CallbackQuery, state: FSMContext):
+    try:
+        pid = int((callback.data or "").split("_")[1])
+    except Exception:
+        await callback.answer("Пресет не найден", show_alert=True)
+        return
+    with SessionLocal() as db:
+        pr = MarginatorDBService.get_preset(db, callback.from_user.id, pid)
+        if not pr:
+            await callback.answer("Пресет не найден", show_alert=True)
+            return
+        await state.update_data(
+            calc_mode=pr.calc_mode or "marketplace",
+            commission_percent=pr.commission_percent,
+            logistics_cost=pr.logistics_cost,
+            packaging_cost=pr.packaging_cost,
+            tax_rate_percent=pr.tax_rate_percent,
+            freight_cost=pr.freight_cost,
+            manager_bonus_percent=pr.manager_bonus_percent,
+            is_vat_included=pr.is_vat_included,
+            target_margin_percent=pr.target_margin_percent,
+        )
+    await callback.answer(f"Пресет «{pr.name}»")
+    await callback.message.edit_text(f"✅ Применён пресет: {pr.name}")
+    # если в пресете уже есть цель — сразу к confirm
+    if pr.target_margin_percent is not None:
+        await state.set_state(CalcState.confirm_params)
+        await callback.message.answer(
+            f"Цель маржинальности: {pr.target_margin_percent}%\nНажмите «Рассчитать».",
+            reply_markup=get_run_keyboard(),
+        )
+    else:
+        await prompt_target_margin(callback.message, state)
+
+
+@marginator_router.callback_query(F.data == "save_preset")
+async def save_preset_start(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.answer("Введите название пресета (например, WB 18%):")
+    await state.set_state(CalcState.save_preset_name)
+
+
+@marginator_router.message(CalcState.save_preset_name)
+async def save_preset_name(message: Message, state: FSMContext):
+    name = (message.text or "").strip()[:64]
+    if not name:
+        await message.answer("Название не должно быть пустым.")
+        return
+    data = await state.get_data()
+    with SessionLocal() as db:
+        MarginatorDBService.save_preset(db, message.from_user.id, name, data)
+    await message.answer(f"💾 Пресет «{name}» сохранён.")
+    await state.set_state(CalcState.confirm_params)
+    await message.answer("Можно считать:", reply_markup=get_run_keyboard())
+
+
+# --- Целевая маржа ---
+
+@marginator_router.callback_query(CalcState.input_target_margin, F.data.startswith("target_m_"))
+async def on_target_margin(callback: CallbackQuery, state: FSMContext):
+    raw = callback.data or ""
+    if raw == "target_m_skip":
+        await state.update_data(target_margin_percent=None)
+        await callback.answer("Без целевой маржи")
+        msg = "Цель не задана."
+    else:
+        try:
+            val = float(raw.split("_")[-1])
+        except Exception:
+            val = 25.0
+        await state.update_data(target_margin_percent=val)
+        await callback.answer()
+        msg = f"Целевая маржинальность: {val}%"
+    try:
+        await callback.message.edit_text(msg)
+    except Exception:
+        pass
+    await state.set_state(CalcState.confirm_params)
+    await callback.message.answer(
+        "Всё готово. Нажмите «🚀 Рассчитать».",
+        reply_markup=get_run_keyboard(),
+    )
 
 
 # --- Кнопка «Рассчитать» (callback) ---
@@ -718,7 +878,7 @@ async def execute_calculation(message: Message, state: FSMContext):
                     is_vat_included=vat,
                 )
                 res = calc.calculate_item(item, params)
-                results.append({
+                row_out = {
                     "Товар": item.product_name,
                     "Себестоимость, ₽": item.cost_price,
                     "Выручка, ₽": res.revenue,
@@ -729,7 +889,19 @@ async def execute_calculation(message: Message, state: FSMContext):
                     "Чистая прибыль, ₽": res.net_profit,
                     "Рентабельность чистая %": res.net_margin_percent,
                     "ROI %": res.roi_percent,
-                })
+                }
+                tgt = data.get("target_margin_percent")
+                if tgt is not None and calc_mode != "b2b":
+                    mp = min_selling_price_for_margin(
+                        item.cost_price,
+                        target_margin_percent=float(tgt),
+                        commission_percent=float(data.get("commission_percent", 15) or 15),
+                        logistics_cost=float(data.get("logistics_cost", 0) or 0),
+                        packaging_cost=float(data.get("packaging_cost", 0) or 0),
+                    )
+                    if mp is not None:
+                        row_out[f"Мин. цена для маржи {tgt:g}%"] = mp
+                results.append(row_out)
             except Exception:
                 continue
     else:
@@ -777,7 +949,7 @@ async def execute_calculation(message: Message, state: FSMContext):
                     tax_rate_percent=tax_rate_percent,
                 )
                 res = calc.calculate_item(item, params)
-                results.append({
+                row_out = {
                     "Товар": item.product_name,
                     "Себестоимость, ₽": item.cost_price,
                     "Выручка, ₽": res.revenue,
@@ -788,7 +960,19 @@ async def execute_calculation(message: Message, state: FSMContext):
                     "Чистая прибыль, ₽": res.net_profit,
                     "Рентабельность чистая %": res.net_margin_percent,
                     "ROI %": res.roi_percent,
-                })
+                }
+                tgt = data.get("target_margin_percent")
+                if tgt is not None and calc_mode != "b2b":
+                    mp = min_selling_price_for_margin(
+                        item.cost_price,
+                        target_margin_percent=float(tgt),
+                        commission_percent=float(data.get("commission_percent", 15) or 15),
+                        logistics_cost=float(data.get("logistics_cost", 0) or 0),
+                        packaging_cost=float(data.get("packaging_cost", 0) or 0),
+                    )
+                    if mp is not None:
+                        row_out[f"Мин. цена для маржи {tgt:g}%"] = mp
+                results.append(row_out)
             except Exception:
                 continue
 
