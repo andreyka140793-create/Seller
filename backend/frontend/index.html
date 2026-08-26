@@ -251,14 +251,14 @@
         </div>
 
         <div class="hint-box">
-          Здесь сводка юнит-экономики: сколько заработаете после комиссии, логистики, упаковки и налога.
+          Сводка: маржа (до налога), чистая прибыль, маржинальность и ROI. Excel — полный разбор с наценкой.
           Полный Excel уже прислал бот — Mini App удобен для быстрого просмотра в Telegram.
         </div>
 
         <div class="grid">
           <div class="card"><div class="label">Выручка</div><div class="value">${money(totalRev)}</div></div>
           <div class="card"><div class="label">Чистая прибыль</div><div class="value ${totalProfit >= 0 ? "ok" : "bad"}">${money(totalProfit)}</div></div>
-          <div class="card"><div class="label">Средняя маржа</div><div class="value">${pct(avgMargin)}</div></div>
+          <div class="card"><div class="label">Рентабельность</div><div class="value">${pct(avgMargin)}</div></div>
           <div class="card"><div class="label">В плюсе / в минусе</div><div class="value">${good} / ${bad}</div></div>
         </div>
 
