@@ -136,15 +136,19 @@ def get_run_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_whatif_keyboard() -> InlineKeyboardMarkup:
-    """Быстрый пересчёт «что если» по комиссии."""
+    """Быстрый пересчёт «что если»."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="Комиссия −2%", callback_data="whatif_comm_-2"),
             InlineKeyboardButton(text="Комиссия +2%", callback_data="whatif_comm_+2"),
         ],
         [
-            InlineKeyboardButton(text="Комиссия −5%", callback_data="whatif_comm_-5"),
-            InlineKeyboardButton(text="Комиссия +5%", callback_data="whatif_comm_+5"),
+            InlineKeyboardButton(text="Логистика −20₽", callback_data="whatif_log_-20"),
+            InlineKeyboardButton(text="Логистика +20₽", callback_data="whatif_log_+20"),
+        ],
+        [
+            InlineKeyboardButton(text="Налог −1%", callback_data="whatif_tax_-1"),
+            InlineKeyboardButton(text="Налог +1%", callback_data="whatif_tax_+1"),
         ],
         [InlineKeyboardButton(text="🔄 Новый расчёт", callback_data="new_calc")],
     ])
@@ -174,6 +178,14 @@ def get_after_report_keyboard(webapp_url: str | None = None) -> InlineKeyboardMa
         [
             InlineKeyboardButton(text="Комиссия −2%", callback_data="whatif_comm_-2"),
             InlineKeyboardButton(text="Комиссия +2%", callback_data="whatif_comm_+2"),
+        ],
+        [
+            InlineKeyboardButton(text="Логистика −20₽", callback_data="whatif_log_-20"),
+            InlineKeyboardButton(text="Логистика +20₽", callback_data="whatif_log_+20"),
+        ],
+        [
+            InlineKeyboardButton(text="Налог −1%", callback_data="whatif_tax_-1"),
+            InlineKeyboardButton(text="Налог +1%", callback_data="whatif_tax_+1"),
         ],
         [InlineKeyboardButton(text="🛒 Только к закупке (ROI≥30%)", callback_data="export_buy_list")],
         [InlineKeyboardButton(text="🔄 Новый расчёт", callback_data="new_calc")],
