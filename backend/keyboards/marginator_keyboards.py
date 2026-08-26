@@ -92,6 +92,7 @@ def get_params_keyboard_with_presets(presets: list, mode: str = "marketplace") -
             text=f"📌 {pr.name}",
             callback_data=f"preset_{pr.id}",
         )])
+    rows.append([InlineKeyboardButton(text="💱 Закуп в валюте (курс)", callback_data="fx_setup")])
     rows.append([InlineKeyboardButton(text="⚙️ Настроить вручную", callback_data="params_custom")])
     rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_flow")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -174,6 +175,7 @@ def get_after_report_keyboard(webapp_url: str | None = None) -> InlineKeyboardMa
             InlineKeyboardButton(text="Комиссия −2%", callback_data="whatif_comm_-2"),
             InlineKeyboardButton(text="Комиссия +2%", callback_data="whatif_comm_+2"),
         ],
+        [InlineKeyboardButton(text="🛒 Только к закупке (ROI≥30%)", callback_data="export_buy_list")],
         [InlineKeyboardButton(text="🔄 Новый расчёт", callback_data="new_calc")],
     ]
     if webapp_url:
@@ -210,6 +212,7 @@ def get_mapping_field_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="Себестоимость / закуп", callback_data="map_field_cost")],
         [InlineKeyboardButton(text="Цена продажи (если есть)", callback_data="map_field_sell")],
         [InlineKeyboardButton(text="Количество", callback_data="map_field_qty")],
+        [InlineKeyboardButton(text="Вес, кг", callback_data="map_field_weight")],
         [InlineKeyboardButton(text="✅ Готово", callback_data="map_ok")],
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_flow")],
     ])
