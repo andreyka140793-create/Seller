@@ -24,6 +24,9 @@ from keyboards.marginator_keyboards import (
     get_target_margin_keyboard,
     get_whatif_keyboard,
     MP_TEMPLATES,
+    get_mapping_confirm_keyboard,
+    get_mapping_field_keyboard,
+    get_column_pick_keyboard,
 )
 from database import SessionLocal
 from services.marginator.parser import ExcelParserService
@@ -118,8 +121,19 @@ async def cmd_help(message: Message):
 
 # --- Выбор режима ---
 
-@marginator_router.callback_query(CalcState.select_mode, F.data.in_({"mode_marketplace", "mode_b2b"}))
+@marginator_router.callback_query(CalcState.select_mode, F.data.in_({"mode_marketplace", "mode_b2b", "mode_compare"}))
 async def select_calc_mode(callback: CallbackQuery, state: FSMContext):
+    if callback.data == "mode_compare":
+        await state.update_data(calc_mode="compare")
+        await callback.message.edit_text(
+            "⚖️ Сравнение двух прайсов\n\n"
+            "Отправьте **первый** прайс (A) — Excel/CSV/…\n"
+            "Сопоставление по артикулу или названию."
+        )
+        await state.set_state(CalcState.compare_upload_a)
+        await callback.answer()
+        return
+
     mode = "marketplace" if callback.data == "mode_marketplace" else "b2b"
     await state.update_data(calc_mode=mode)
     label = "Маркетплейс" if mode == "marketplace" else "B2B"
@@ -235,11 +249,57 @@ async def handle_excel_upload(message: Message, state: FSMContext, bot: Bot):
             parse_mode="Markdown",
         )
 
-        await prompt_price_column_or_params(message, state, mapping)
+        await prompt_mapping_confirm(message, state, mapping)
 
     except Exception as e:
         _cleanup_temp_file(temp_path)
         await status_msg.edit_text(f"❌ Ошибка при анализе файла: `{str(e)}`", parse_mode="Markdown")
+
+
+
+async def prompt_mapping_confirm(message: Message, state: FSMContext, mapping):
+    """Показать определённые колонки и дать подтвердить/править."""
+    from services.marginator.file_io import read_table
+    data = await state.get_data()
+    cols = []
+    try:
+        file_bytes = await _load_file_bytes_from_state(data)
+        if file_bytes:
+            df = read_table(
+                file_bytes,
+                data.get("file_name", "f.xlsx"),
+                header=getattr(mapping, "header_row_index", 0) if not isinstance(mapping, dict) else mapping.get("header_row_index", 0),
+                nrows=3,
+            )
+            cols = [str(c) for c in df.columns]
+    except Exception:
+        cols = []
+    await state.update_data(file_columns=cols)
+
+    if isinstance(mapping, dict):
+        product = mapping.get("product_name_col")
+        cost = mapping.get("cost_price_col")
+        sell = mapping.get("selling_price_col")
+        qty = mapping.get("quantity_col")
+        header = mapping.get("header_row_index", 0)
+    else:
+        product = mapping.product_name_col
+        cost = mapping.cost_price_col
+        sell = mapping.selling_price_col
+        qty = mapping.quantity_col
+        header = mapping.header_row_index
+
+    await message.answer(
+        "Проверьте колонки:\n\n"
+        f"• Шапка: строка {int(header) + 1}\n"
+        f"• Товар: {product or '—'}\n"
+        f"• Себестоимость: {cost or '—'}\n"
+        f"• Цена продажи: {sell or '—'}\n"
+        f"• Количество: {qty or '—'}\n\n"
+        "Если бот ошибся — «Изменить колонки».",
+        reply_markup=get_mapping_confirm_keyboard(),
+    )
+    await state.set_state(CalcState.confirm_mapping)
 
 
 async def prompt_parameter_setup(message: Message, state: FSMContext):
@@ -561,6 +621,183 @@ async def skip_optional_param(callback: CallbackQuery, state: FSMContext):
 
 
 
+
+
+
+
+# --- Подтверждение / правка колонок ---
+
+@marginator_router.callback_query(CalcState.confirm_mapping, F.data == "map_ok")
+async def mapping_ok(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    data = await state.get_data()
+    raw = data.get("mapping") or {}
+    try:
+        mapping = TableMappingSchema.model_validate(raw) if isinstance(raw, dict) else raw
+    except Exception:
+        mapping = raw
+    await prompt_price_column_or_params(callback.message, state, mapping)
+
+
+@marginator_router.callback_query(CalcState.confirm_mapping, F.data == "map_edit")
+@marginator_router.callback_query(CalcState.map_pick_column, F.data == "map_edit")
+async def mapping_edit(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.edit_text(
+        "Что исправить?",
+        reply_markup=get_mapping_field_keyboard(),
+    )
+    await state.set_state(CalcState.map_pick_field)
+
+
+@marginator_router.callback_query(CalcState.map_pick_field, F.data.startswith("map_field_"))
+async def mapping_pick_field(callback: CallbackQuery, state: FSMContext):
+    field = (callback.data or "").replace("map_field_", "")
+    await state.update_data(map_edit_field=field)
+    data = await state.get_data()
+    cols = data.get("file_columns") or []
+    if not cols:
+        await callback.answer("Список колонок пуст — загрузите файл снова", show_alert=True)
+        return
+    labels = {
+        "product": "товар",
+        "cost": "себестоимость",
+        "sell": "цену продажи",
+        "qty": "количество",
+    }
+    await callback.answer()
+    await callback.message.edit_text(
+        f"Выберите колонку для: {labels.get(field, field)}",
+        reply_markup=get_column_pick_keyboard(cols),
+    )
+    await state.set_state(CalcState.map_pick_column)
+
+
+@marginator_router.callback_query(CalcState.map_pick_column, F.data.startswith("map_col_"))
+async def mapping_pick_col(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    cols = data.get("file_columns") or []
+    try:
+        idx = int((callback.data or "").rsplit("_", 1)[-1])
+        col = cols[idx]
+    except Exception:
+        await callback.answer("Ошибка", show_alert=True)
+        return
+    field = data.get("map_edit_field")
+    mapping = dict(data.get("mapping") or {})
+    key_map = {
+        "product": "product_name_col",
+        "cost": "cost_price_col",
+        "sell": "selling_price_col",
+        "qty": "quantity_col",
+    }
+    mk = key_map.get(field)
+    if mk:
+        mapping[mk] = col
+    await state.update_data(mapping=mapping)
+    await callback.answer(f"→ {col}")
+    # show updated summary
+    try:
+        mobj = TableMappingSchema.model_validate(mapping)
+    except Exception:
+        mobj = mapping
+    await prompt_mapping_confirm(callback.message, state, mobj)
+
+
+# --- Сравнение двух прайсов ---
+
+@marginator_router.message(CalcState.compare_upload_a, F.document)
+async def compare_receive_a(message: Message, state: FSMContext, bot: Bot):
+    doc = message.document
+    name = (doc.file_name or "price_a.xlsx").lower()
+    from services.marginator.document_loader import is_supported
+    if not is_supported(name):
+        await message.answer("Нужен Excel/CSV/TXT/Word/PDF.")
+        return
+    if doc.file_size and doc.file_size > MAX_FILE_SIZE_BYTES:
+        await message.answer("Файл слишком большой.")
+        return
+    tg = await bot.get_file(doc.file_id)
+    buf = await bot.download_file(tg.file_path)
+    raw = buf.read()
+    path = _UPLOAD_ROOT / f"cmp_a_{message.from_user.id}_{doc.file_unique_id}{Path(name).suffix}"
+    path.write_bytes(raw)
+    await state.update_data(compare_a_path=str(path), compare_a_name=doc.file_name or name)
+    await message.answer(
+        f"Прайс A: {doc.file_name}\\n\\nТеперь отправьте **второй** прайс (B)."
+    )
+    await state.set_state(CalcState.compare_upload_b)
+
+
+@marginator_router.message(CalcState.compare_upload_b, F.document)
+async def compare_receive_b(message: Message, state: FSMContext, bot: Bot):
+    doc = message.document
+    name = (doc.file_name or "price_b.xlsx").lower()
+    from services.marginator.document_loader import is_supported
+    if not is_supported(name):
+        await message.answer("Нужен Excel/CSV/TXT/Word/PDF.")
+        return
+    tg = await bot.get_file(doc.file_id)
+    buf = await bot.download_file(tg.file_path)
+    raw = buf.read()
+    path_b = _UPLOAD_ROOT / f"cmp_b_{message.from_user.id}_{doc.file_unique_id}{Path(name).suffix}"
+    path_b.write_bytes(raw)
+
+    data = await state.get_data()
+    path_a = data.get("compare_a_path")
+    name_a = data.get("compare_a_name") or "A"
+    name_b = doc.file_name or name
+    if not path_a or not Path(path_a).is_file():
+        await message.answer("Первый файл потерян. Начните сравнение заново.")
+        await state.clear()
+        return
+
+    status = await message.answer("⚖️ Сравниваю прайсы…")
+    try:
+        from services.marginator.file_io import read_table
+        from services.marginator.compare import compare_price_lists
+        from services.marginator.exporter import ExcelExporterService
+
+        df_a = read_table(Path(path_a).read_bytes(), name_a)
+        df_b = read_table(raw, name_b)
+        # эвристика шапки: если мало колонок — уже ок
+        result = compare_price_lists(df_a, df_b, label_a="A", label_b="B")
+        if result.empty:
+            await status.edit_text(
+                "Не удалось сопоставить позиции.\\n"
+                "Нужны колонки с названием/артикулом и ценой."
+            )
+            return
+
+        both = result[result["Статус"] == "есть в обоих"]
+        cheaper_b = len(both[both["Вывод"] == "B выгоднее"]) if len(both) else 0
+        cheaper_a = len(both[both["Вывод"] == "A выгоднее"]) if len(both) else 0
+        only_a = len(result[result["Статус"] == "только в A"])
+        only_b = len(result[result["Статус"] == "только в B"])
+
+        excel = ExcelExporterService.export_results_to_excel(result)
+        out = BufferedInputFile(excel, filename="compare_prices.xlsx")
+        await status.delete()
+        await message.answer(
+            f"⚖️ Результат сравнения\\n"
+            f"• A: {name_a}\\n• B: {name_b}\\n"
+            f"• Совпало: {len(both)}\\n"
+            f"• B выгоднее: {cheaper_b}\\n"
+            f"• A выгоднее: {cheaper_a}\\n"
+            f"• Только в A: {only_a}\\n"
+            f"• Только в B: {only_b}"
+        )
+        await message.answer_document(
+            out,
+            caption="Сравнение: разница ₽ и %, статус по каждой позиции.",
+        )
+    except Exception as e:
+        await status.edit_text(f"Ошибка сравнения: {type(e).__name__}: {e}")
+    finally:
+        _cleanup_temp_file(path_a)
+        _cleanup_temp_file(str(path_b))
+        await state.clear()
+        await message.answer("Готово.", reply_markup=get_main_reply_keyboard())
 
 
 # --- Выбор колонки цены (ступени B2B) ---
