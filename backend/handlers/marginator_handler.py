@@ -871,7 +871,23 @@ async def apply_preset(callback: CallbackQuery, state: FSMContext):
             target_margin_percent=pr.target_margin_percent,
         )
     await callback.answer(f"Пресет «{pr.name}»")
-    await callback.message.edit_text(f"✅ Применён пресет: {pr.name}")
+    age_note = ""
+    try:
+        from datetime import datetime, timezone
+        created = pr.created_at
+        if created is not None:
+            if created.tzinfo is None:
+                age_days = (datetime.utcnow() - created).days
+            else:
+                age_days = (datetime.now(timezone.utc) - created).days
+            if age_days >= 30:
+                age_note = (
+                    f"\n\n⚠️ Пресету {age_days} дн. "
+                    "Комиссии МП могли измениться — проверьте цифры."
+                )
+    except Exception:
+        pass
+    await callback.message.edit_text(f"✅ Применён пресет: {pr.name}{age_note}")
     # если в пресете уже есть цель — сразу к confirm
     if pr.target_margin_percent is not None:
         await state.set_state(CalcState.confirm_params)
@@ -1462,9 +1478,13 @@ async def export_buy_list_cb(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(f"Ошибка: {e}")
 
 
-@marginator_router.callback_query(F.data.startswith("whatif_comm_"))
-async def whatif_commission(callback: CallbackQuery, state: FSMContext):
-    """Пересчёт с изменённой комиссией, не загружая файл заново."""
+@marginator_router.callback_query(
+    F.data.startswith("whatif_comm_")
+    | F.data.startswith("whatif_log_")
+    | F.data.startswith("whatif_tax_")
+)
+async def whatif_recalc(callback: CallbackQuery, state: FSMContext):
+    """Пересчёт без повторной загрузки файла: комиссия / логистика / налог."""
     data = await state.get_data()
     if "mapping" not in data and not data.get("file_path"):
         await callback.answer(
@@ -1472,20 +1492,52 @@ async def whatif_commission(callback: CallbackQuery, state: FSMContext):
             show_alert=True,
         )
         return
-    raw = callback.data or "whatif_comm_0"
-    try:
-        delta = float(raw.replace("whatif_comm_", "").replace("+", ""))
-    except Exception:
-        delta = 0.0
+
+    raw = callback.data or ""
     mode = data.get("calc_mode", "marketplace")
     if mode == "b2b":
-        await callback.answer("«Что если» по комиссии — только для маркетплейса", show_alert=True)
+        await callback.answer(
+            "«Что если» — для режима маркетплейса. В B2B сделайте новый расчёт.",
+            show_alert=True,
+        )
         return
-    old = float(data.get("commission_percent", 15) or 15)
-    new = max(0.0, min(80.0, old + delta))
-    await state.update_data(commission_percent=new)
-    await callback.answer(f"Комиссия {old:g}% → {new:g}%")
-    await callback.message.answer(f"Пересчитываю с комиссией **{new:g}%**…", parse_mode="Markdown")
+
+    label = ""
+    try:
+        if raw.startswith("whatif_comm_"):
+            delta = float(raw.replace("whatif_comm_", "").replace("+", ""))
+            old = float(data.get("commission_percent", 15) or 15)
+            new = max(0.0, min(80.0, old + delta))
+            await state.update_data(commission_percent=new)
+            label = f"комиссией {old:g}% → {new:g}%"
+        elif raw.startswith("whatif_log_"):
+            delta = float(raw.replace("whatif_log_", "").replace("+", ""))
+            # если был режим ₽/кг — меняем per_kg, иначе фикс
+            if data.get("logistics_per_kg") is not None:
+                old = float(data.get("logistics_per_kg") or 0)
+                new = max(0.0, old + delta)
+                await state.update_data(logistics_per_kg=new)
+                label = f"логистикой {old:g} → {new:g} ₽/кг"
+            else:
+                old = float(data.get("logistics_cost", 0) or 0)
+                new = max(0.0, old + delta)
+                await state.update_data(logistics_cost=new)
+                label = f"логистикой {old:g} → {new:g} ₽/шт"
+        elif raw.startswith("whatif_tax_"):
+            delta = float(raw.replace("whatif_tax_", "").replace("+", ""))
+            old = float(data.get("tax_rate_percent", 6) or 6)
+            new = max(0.0, min(50.0, old + delta))
+            await state.update_data(tax_rate_percent=new)
+            label = f"налогом {old:g}% → {new:g}%"
+        else:
+            await callback.answer("Неизвестный сценарий", show_alert=True)
+            return
+    except Exception as e:
+        await callback.answer(f"Ошибка: {e}", show_alert=True)
+        return
+
+    await callback.answer("Пересчёт…")
+    await callback.message.answer(f"Пересчитываю с {label}…")
 
     class _Msg:
         def __init__(self, message, user):
