@@ -13,6 +13,7 @@ class MarginatorDBService:
         df_results: pd.DataFrame,
     ) -> models.PriceUpload:
         """Создаёт/находит пользователя, сохраняет загрузку и позиции."""
+        telegram_id = int(telegram_id)
         user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
         if not user:
             user = models.User(telegram_id=telegram_id)
@@ -79,6 +80,7 @@ class MarginatorDBService:
 
     @staticmethod
     def get_user_history(db: Session, telegram_id: int, limit: int = 15) -> list:
+        telegram_id = int(telegram_id)
         user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
         if not user:
             return []
