@@ -39,7 +39,7 @@ class MarginatorDBService:
         db_items = []
         for _, row in df_results.iterrows():
             try:
-                margin_val = float(row.get("Маржинальность %", 0) or 0)
+                margin_val = float(row.get("Маржинальность %", row.get("Рентабельность чистая %", 0)) or 0)
             except Exception:
                 margin_val = 0.0
             try:
@@ -104,3 +104,83 @@ class MarginatorDBService:
             .filter(models.PriceUpload.id == int(upload_id))
             .first()
         )
+
+
+    @staticmethod
+    def get_or_create_user(db: Session, telegram_id: int) -> models.User:
+        telegram_id = int(telegram_id)
+        user = db.query(models.User).filter(models.User.telegram_id == telegram_id).first()
+        if not user:
+            user = models.User(telegram_id=telegram_id)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        return user
+
+    @staticmethod
+    def list_presets(db: Session, telegram_id: int) -> list:
+        user = db.query(models.User).filter(models.User.telegram_id == int(telegram_id)).first()
+        if not user:
+            return []
+        return (
+            db.query(models.UserPreset)
+            .filter(models.UserPreset.user_id == user.id)
+            .order_by(models.UserPreset.created_at.desc())
+            .limit(8)
+            .all()
+        )
+
+    @staticmethod
+    def save_preset(db: Session, telegram_id: int, name: str, data: dict) -> models.UserPreset:
+        user = MarginatorDBService.get_or_create_user(db, telegram_id)
+        # limit 8 presets — удаляем самые старые
+        existing = (
+            db.query(models.UserPreset)
+            .filter(models.UserPreset.user_id == user.id)
+            .order_by(models.UserPreset.created_at.desc())
+            .all()
+        )
+        if len(existing) >= 8:
+            for old in existing[7:]:
+                db.delete(old)
+        preset = models.UserPreset(
+            user_id=user.id,
+            name=(name or "Пресет")[:64],
+            calc_mode=data.get("calc_mode", "marketplace"),
+            commission_percent=float(data.get("commission_percent", 15) or 15),
+            logistics_cost=float(data.get("logistics_cost", 120) or 120),
+            packaging_cost=float(data.get("packaging_cost", 30) or 30),
+            tax_rate_percent=float(data.get("tax_rate_percent", 6) or 6),
+            freight_cost=float(data.get("freight_cost", 0) or 0),
+            manager_bonus_percent=float(data.get("manager_bonus_percent", 0) or 0),
+            is_vat_included=bool(data.get("is_vat_included", True)),
+            target_margin_percent=(
+                float(data["target_margin_percent"])
+                if data.get("target_margin_percent") is not None
+                else None
+            ),
+        )
+        db.add(preset)
+        db.commit()
+        db.refresh(preset)
+        return preset
+
+    @staticmethod
+    def get_preset(db: Session, telegram_id: int, preset_id: int):
+        user = db.query(models.User).filter(models.User.telegram_id == int(telegram_id)).first()
+        if not user:
+            return None
+        return (
+            db.query(models.UserPreset)
+            .filter(models.UserPreset.id == preset_id, models.UserPreset.user_id == user.id)
+            .first()
+        )
+
+    @staticmethod
+    def delete_preset(db: Session, telegram_id: int, preset_id: int) -> bool:
+        preset = MarginatorDBService.get_preset(db, telegram_id, preset_id)
+        if not preset:
+            return False
+        db.delete(preset)
+        db.commit()
+        return True

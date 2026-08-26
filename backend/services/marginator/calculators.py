@@ -130,3 +130,32 @@ class B2BCalculator(BaseCalculator):
             roi_percent=round(roi, 2),
             tax_amount=round(tax, 2),
         )
+
+
+
+def min_selling_price_for_margin(
+    cost_price: float,
+    *,
+    target_margin_percent: float,
+    commission_percent: float = 0.0,
+    logistics_cost: float = 0.0,
+    packaging_cost: float = 0.0,
+    tax_rate_percent: float = 0.0,
+    use_net_margin: bool = False,
+) -> float | None:
+    """
+    Минимальная цена продажи для целевой маржинальности (до налога)
+    или чистой рентабельности (use_net_margin=True).
+
+    P = (cost + logistics + packaging) / (1 - commission/100 - margin/100 [- tax/100])
+    """
+    if cost_price <= 0:
+        return None
+    m = target_margin_percent / 100.0
+    c = commission_percent / 100.0
+    t_ = tax_rate_percent / 100.0 if use_net_margin else 0.0
+    denom = 1.0 - c - m - t_
+    if denom <= 0.01:
+        return None
+    price = (cost_price + logistics_cost + packaging_cost) / denom
+    return round(max(price, 0.0), 2)

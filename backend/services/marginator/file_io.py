@@ -257,3 +257,22 @@ def find_header_row(df_preview: pd.DataFrame, max_scan: int = 15) -> int:
             best_score = score
             best_idx = i
     return best_idx
+
+
+
+def list_price_tier_columns(df) -> list[str]:
+    """Колонки-кандидаты в цену (ступени опта и обычные цены), по убыванию score."""
+    scored = []
+    for col in df.columns:
+        sc = _score_price_column(col)
+        if sc >= 8:
+            scored.append((sc, str(col)))
+    scored.sort(key=lambda x: -x[0])
+    # уникальные имена
+    seen = set()
+    out = []
+    for _, name in scored:
+        if name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
