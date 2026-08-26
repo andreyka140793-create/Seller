@@ -160,6 +160,11 @@ async def upload_price(
         raise HTTPException(status_code=500, detail=f"Ошибка обработки: {str(e)}")
 
 
+@app.get("/api/health")
+def health():
+    return {"ok": True, "service": "marginator"}
+
+
 @app.get("/api/history/{telegram_id}")
 def get_user_history_api(
     telegram_id: int,
@@ -167,7 +172,13 @@ def get_user_history_api(
     tg_data: dict = Depends(get_current_tg_user),
 ):
     """Возвращает историю расчетов пользователя для Mini App."""
-    requester_id = (tg_data.get("user") or {}).get("id")
+    user_obj = tg_data.get("user") or {}
+    requester_id = user_obj.get("id") if isinstance(user_obj, dict) else None
+    try:
+        requester_id = int(requester_id) if requester_id is not None else None
+        telegram_id = int(telegram_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректный telegram_id")
     if requester_id != telegram_id:
         raise HTTPException(status_code=403, detail="Доступ запрещён: чужая история расчётов")
 
@@ -200,13 +211,49 @@ def get_upload_details_api(
     db: Session = Depends(get_db),
     tg_data: dict = Depends(get_current_tg_user),
 ):
-    upload = db.query(models.PriceUpload).filter(models.PriceUpload.id == upload_id).first()
+    from sqlalchemy.orm import joinedload
+    upload = (
+        db.query(models.PriceUpload)
+        .options(joinedload(models.PriceUpload.user), joinedload(models.PriceUpload.items))
+        .filter(models.PriceUpload.id == upload_id)
+        .first()
+    )
     if not upload:
-        raise HTTPException(status_code=404, detail="Расчет не найден")
+        raise HTTPException(status_code=404, detail="Расчёт не найден. Сделайте новый расчёт в боте.")
 
-    requester_id = (tg_data.get("user") or {}).get("id")
-    if not upload.user or upload.user.telegram_id != requester_id:
-        raise HTTPException(status_code=403, detail="Доступ запрещён: расчёт принадлежит другому пользователю")
+    user_obj = tg_data.get("user") or {}
+    requester_id = user_obj.get("id") if isinstance(user_obj, dict) else None
+    if requester_id is None:
+        raise HTTPException(status_code=401, detail="Нет user id в initData")
+    try:
+        requester_id = int(requester_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail=f"Некорректный user id: {requester_id!r}")
+
+    owner = upload.user
+    if owner is None and upload.user_id:
+        owner = db.query(models.User).filter(models.User.id == upload.user_id).first()
+
+    if owner is None:
+        raise HTTPException(
+            status_code=403,
+            detail="У расчёта нет владельца в БД. Сделайте новый расчёт в боте.",
+        )
+
+    try:
+        owner_tid = int(owner.telegram_id)
+    except (TypeError, ValueError):
+        owner_tid = None
+
+    if owner_tid != requester_id:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"ID не совпал (в БД {owner_tid}, в Telegram {requester_id}). "
+                "Сделайте новый расчёт после обновления бота — старые записи могли "
+                "сохраниться с обрезанным telegram_id."
+            ),
+        )
 
     return {
         "id": upload.id,
