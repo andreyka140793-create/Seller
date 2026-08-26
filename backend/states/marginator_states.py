@@ -1,3 +1,4 @@
+"""FSM states for Marginator bot."""
 from aiogram.fsm.state import State, StatesGroup
 
 
@@ -14,7 +15,7 @@ class CalcState(StatesGroup):
     input_tax = State()
     input_freight = State()
     input_manager_bonus = State()
-    input_fx_rate = State()          # курс: USD 95 / 95 / CNY 13
+    input_fx_rate = State()
     input_target_margin = State()
     confirm_params = State()
     save_preset_name = State()
