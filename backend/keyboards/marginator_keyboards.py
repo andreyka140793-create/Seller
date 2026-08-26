@@ -1,3 +1,4 @@
+"""Telegram keyboards for Marginator."""
 import os
 from aiogram.types import (
     InlineKeyboardMarkup,
@@ -31,16 +32,6 @@ def get_mode_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def get_params_setup_keyboard() -> InlineKeyboardMarkup:
-    return get_params_keyboard_with_presets([], mode="marketplace")
-
-
-def get_b2b_params_keyboard() -> InlineKeyboardMarkup:
-    return get_params_keyboard_with_presets([], mode="b2b")
-
-
-# Встроенные шаблоны МП — только ориентиры, НЕ официальные тарифы площадок.
-# Комиссии зависят от категории, схемы (FBO/FBS), акций; логистика и упаковка — у каждого свои.
 MP_TEMPLATES = {
     "wb": {
         "label": "WB (ориентир)",
@@ -48,6 +39,7 @@ MP_TEMPLATES = {
         "logistics_cost": 80.0,
         "packaging_cost": 25.0,
         "tax_rate_percent": 6.0,
+        "tax_mode": "usn_6",
     },
     "ozon": {
         "label": "Ozon (ориентир)",
@@ -55,6 +47,7 @@ MP_TEMPLATES = {
         "logistics_cost": 100.0,
         "packaging_cost": 30.0,
         "tax_rate_percent": 6.0,
+        "tax_mode": "usn_6",
     },
     "yam": {
         "label": "Я.Маркет (ориентир)",
@@ -62,6 +55,7 @@ MP_TEMPLATES = {
         "logistics_cost": 90.0,
         "packaging_cost": 25.0,
         "tax_rate_percent": 6.0,
+        "tax_mode": "usn_6",
     },
 }
 
@@ -136,7 +130,6 @@ def get_run_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_whatif_keyboard() -> InlineKeyboardMarkup:
-    """Быстрый пересчёт «что если»."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="Комиссия −2%", callback_data="whatif_comm_-2"),
