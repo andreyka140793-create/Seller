@@ -163,14 +163,26 @@
 
     function getUploadId() {
       const q = new URLSearchParams(location.search);
-      const fromQ = q.get("upload_id");
-      if (fromQ) return fromQ;
-      // start_param из Telegram
+      if (q.get("upload_id")) return q.get("upload_id");
+      if (q.get("id")) return q.get("id");
+      // hash #upload_id=123
+      try {
+        const h = new URLSearchParams((location.hash || "").replace(/^#/, ""));
+        if (h.get("upload_id")) return h.get("upload_id");
+      } catch (e) {}
       try {
         const sp = tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param;
-        if (sp && sp.startsWith("u")) return sp.slice(1);
+        if (!sp) return null;
+        if (/^\d+$/.test(sp)) return sp;
+        const m = String(sp).match(/(\d+)/);
+        if (m) return m[1];
       } catch (e) {}
       return null;
+    }
+
+    function apiBase() {
+      // /app/... → origin; не использовать relative без leading slash к app
+      return location.origin;
     }
 
     async function load() {
@@ -182,20 +194,31 @@
       if (!uploadId) {
         loader.style.display = "none";
         empty.style.display = "block";
+        empty.querySelector("h2").textContent = "Нет ID расчёта";
+        empty.querySelector("p").innerHTML =
+          "Откройте Mini App <b>кнопкой «Отчёт»</b> из сообщения бота после расчёта.<br/>" +
+          "В Amvera проверьте <code>WEB_APP_URL=https://ВАШ-хост/app</code>";
         return;
       }
 
       try {
-        const headers = {};
+        const headers = { "Accept": "application/json" };
         if (tg && tg.initData) {
           headers["X-Telegram-Init-Data"] = tg.initData;
+        } else {
+          throw new Error("Нет initData — откройте приложение из Telegram, не из браузера");
         }
-        const res = await fetch("/api/upload/" + encodeURIComponent(uploadId), {
-          headers,
-          credentials: "same-origin",
-        });
+        const url = apiBase() + "/api/upload/" + encodeURIComponent(uploadId);
+        const res = await fetch(url, { headers, credentials: "same-origin" });
+        let detail = "";
+        try {
+          const errBody = await res.clone().json();
+          detail = errBody.detail || JSON.stringify(errBody);
+        } catch (e) {
+          detail = await res.text();
+        }
         if (!res.ok) {
-          throw new Error("HTTP " + res.status);
+          throw new Error("HTTP " + res.status + (detail ? ": " + detail : ""));
         }
         const data = await res.json();
         render(data);
@@ -205,8 +228,7 @@
         loader.style.display = "none";
         empty.style.display = "block";
         empty.querySelector("h2").textContent = "Не удалось загрузить отчёт";
-        empty.querySelector("p").textContent =
-          "Откройте Mini App кнопкой из сообщения бота после /run, либо выполните расчёт заново.";
+        empty.querySelector("p").textContent = String(e.message || e);
       }
     }
 
