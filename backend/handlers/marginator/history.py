@@ -23,8 +23,7 @@ async def show_calculation_history(message, telegram_id: int | None = None):
             await message.answer("📂 У вас пока нет сохранённых расчётов.")
             return
         await message.answer(
-            f"📜 История расчётов ({len(uploads)}):
-Нажмите на файл — пришлю Excel повторно.",
+            f"📜 История расчётов ({len(uploads)}):\nНажмите на файл — пришлю Excel повторно.",
             reply_markup=get_history_keyboard(uploads),
         )
 
@@ -81,10 +80,7 @@ async def download_archived_report(callback: CallbackQuery):
         document = BufferedInputFile(excel_bytes, filename=out_name)
         await callback.message.answer_document(
             document=document,
-            caption=f"📦 Архивный отчёт: {filename}
-• Позиций: {len(items_data)}
-• Выручка: {total_revenue:,.2f} ₽
-• Прибыль: {total_profit:,.2f} ₽",
+            caption=f"📦 Архивный отчёт: {filename}\n• Позиций: {len(items_data)}\n• Выручка: {total_revenue:,.2f} ₽\n• Прибыль: {total_profit:,.2f} ₽",
         )
     except Exception:
         await callback.message.answer("❌ Не удалось сформировать отчёт.")

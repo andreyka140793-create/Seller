@@ -76,7 +76,7 @@ async def handle_file_upload(message: Message, state: FSMContext, bot: Bot):
 
     parser = ExcelParserService(api_key=os.getenv("XAI_API_KEY"))
     try:
-        mapping = await __import__('asyncio').to_thread(parser.analyze_file_structure_sync, file_bytes, file_name)
+        mapping = await __import__(\'asyncio\').to_thread(parser.analyze_file_structure_sync, file_bytes, file_name)
         # Heuristic correction
         try:
             df_check = read_table(file_bytes, file_name, header=mapping.header_row_index, nrows=15)
@@ -148,11 +148,11 @@ async def prompt_mapping_confirm(message: Message, state: FSMContext, mapping):
     await message.answer(
         f"Проверьте колонки:\n\n"
         f"• Шапка: строка {int(header) + 1}\n"
-        f"• Товар: {product or '—'}\n"
-        f"• Себестоимость: {cost or '—'}\n"
-        f"• Цена продажи: {sell or '—'}\n"
-        f"• Количество: {qty or '—'}\n"
-        f"• Вес: {weight or '—'}\n\n"
+        f"• Товар: {product or \'—\'}\n"
+        f"• Себестоимость: {cost or \'—\'}\n"
+        f"• Цена продажи: {sell or \'—\'}\n"
+        f"• Количество: {qty or \'—\'}\n"
+        f"• Вес: {weight or \'—\'}\n\n"
         f"Если бот ошибся — «Изменить колонки».",
         reply_markup=get_mapping_confirm_keyboard(),
     )

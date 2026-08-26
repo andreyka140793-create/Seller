@@ -63,7 +63,7 @@ async def params_template(callback: CallbackQuery, state: FSMContext):
         tax_rate_percent=t["tax_rate_percent"],
         tax_mode=t["tax_mode"],
     )
-    await callback.message.edit_text(f"✅ Применён шаблон: {t['label']}")
+    await callback.message.edit_text(f"✅ Применён шаблон: {t[\'label\']}")
     await prompt_target_margin(callback.message, state)
 
 
@@ -86,7 +86,7 @@ async def input_logistics(message: Message, state: FSMContext):
         val = float((message.text or "").replace(",", ".").replace("₽", "").strip())
         val = max(0.0, val)
     except ValueError:
-        await message.answer("Введите число ≥ 0.")
+        await message.answer("Введите число >= 0.")
         return
     await state.update_data(logistics_cost=val)
     await message.answer("Введите упаковку (₽/шт):")
@@ -99,7 +99,7 @@ async def input_packaging(message: Message, state: FSMContext):
         val = float((message.text or "").replace(",", ".").replace("₽", "").strip())
         val = max(0.0, val)
     except ValueError:
-        await message.answer("Введите число ≥ 0.")
+        await message.answer("Введите число >= 0.")
         return
     await state.update_data(packaging_cost=val)
     await message.answer("Введите налог (%). Пропустить — УСН 6%:", reply_markup=get_skip_keyboard())
@@ -131,7 +131,7 @@ async def input_freight(message: Message, state: FSMContext):
         val = float((message.text or "").replace(",", ".").replace("₽", "").strip())
         val = max(0.0, val)
     except ValueError:
-        await message.answer("Введите число ≥ 0.")
+        await message.answer("Введите число >= 0.")
         return
     await state.update_data(freight_cost=val)
     await message.answer("Введите бонус менеджера (%). Пропустить — 0%:", reply_markup=get_skip_keyboard())
@@ -192,22 +192,20 @@ async def show_params_summary(message, state: FSMContext):
     mode = data.get("calc_mode", "marketplace")
     lines = ["⚙️ Параметры расчёта:"]
     if mode == "b2b":
-        lines.append(f"• Фрахт: {data.get('freight_cost', 0)} ₽/шт")
-        lines.append(f"• Бонус менеджера: {data.get('manager_bonus_percent', 0)}%")
-        lines.append(f"• НДС: {'включён' if data.get('is_vat_included', True) else 'не включён'} ({data.get('vat_rate_percent', 20)}%)")
+        lines.append(f"• Фрахт: {data.get(\'freight_cost\', 0)} ₽/шт")
+        lines.append(f"• Бонус менеджера: {data.get(\'manager_bonus_percent\', 0)}%")
+        lines.append(f"• НДС: {'включён' if data.get(\'is_vat_included\', True) else 'не включён'} ({data.get(\'vat_rate_percent\', 20)}%)")
     else:
-        lines.append(f"• Комиссия: {data.get('commission_percent', 15)}%")
-        lines.append(f"• Логистика: {data.get('logistics_cost', 120)} ₽/шт")
-        lines.append(f"• Упаковка: {data.get('packaging_cost', 30)} ₽/шт")
-        lines.append(f"• Налог: {data.get('tax_rate_percent', 6)}% ({data.get('tax_mode', 'usn_6')})")
+        lines.append(f"• Комиссия: {data.get(\'commission_percent\', 15)}%")
+        lines.append(f"• Логистика: {data.get(\'logistics_cost\', 120)} ₽/шт")
+        lines.append(f"• Упаковка: {data.get(\'packaging_cost\', 30)} ₽/шт")
+        lines.append(f"• Налог: {data.get(\'tax_rate_percent\', 6)}% ({data.get(\'tax_mode\', \'usn_6\')})")
     tgt = data.get("target_margin_percent")
     if tgt is not None:
         lines.append(f"• Целевая маржа: {tgt}%")
     fx = data.get("fx_rate")
     if fx and fx != 1.0:
-        lines.append(f"• Курс: ×{fx} ({data.get('fx_code', 'FX')})")
-    lines.append("
-Нажмите «Рассчитать» или «Изменить параметры».")
-    await message.answer("
-".join(lines), reply_markup=get_run_keyboard())
+        lines.append(f"• Курс: ×{fx} ({data.get(\'fx_code\', \'FX\')})")
+    lines.append("\nНажмите «Рассчитать» или «Изменить параметры».")
+    await message.answer("\n".join(lines), reply_markup=get_run_keyboard())
     await state.set_state(CalcState.confirm_params)

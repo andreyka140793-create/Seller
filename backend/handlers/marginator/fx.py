@@ -18,18 +18,8 @@ async def fx_setup_start(callback: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="Уже рубли (×1)", callback_data="fx_cbr_RUB")],
     ])
     await callback.message.answer(
-        "💱 Закуп в валюте
-
-Если в прайсе цены не в рублях — укажите курс.
-
-"
-        "Примеры:
-• 95 — умножить закуп на 95
-• USD 92.5 — доллары по 92.5 ₽
-• CNY 13 — юани по 13 ₽
-• 1 — в файле уже рубли
-
-"
+        "💱 Закуп в валюте\n\nЕсли в прайсе цены не в рублях — укажите курс.\n\n"
+        "Примеры:\n• 95 — умножить закуп на 95\n• USD 92.5 — доллары по 92.5 ₽\n• CNY 13 — юани по 13 ₽\n• 1 — в файле уже рубли\n\n"
         "Или нажмите курс ЦБ РФ.",
         reply_markup=kb,
     )
