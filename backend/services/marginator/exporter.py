@@ -56,7 +56,7 @@ class ExcelExporterService:
         for col_num in range(1, ws.max_column + 1):
             name = _norm_header(ws.cell(row=1, column=col_num).value)
             # «Маржинальность %» содержит «маржин», не «маржа»
-            if any(x in name for x in ("маржин", "маржа", "margin", "рентаб")):
+            if any(x in name for x in ("маржинальность", "маржин", "маржа, ₽", "маржа ₽", "margin", "рентаб", "наценка", "roi")):
                 margin_cols.append(col_num)
             if any(x in name for x in ("прибыл", "profit", "net")):
                 profit_cols.append(col_num)
