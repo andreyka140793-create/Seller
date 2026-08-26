@@ -76,11 +76,11 @@ async def handle_file_upload(message: Message, state: FSMContext, bot: Bot):
 
     parser = ExcelParserService(api_key=os.getenv("XAI_API_KEY"))
     try:
-        mapping = await __import__(\'asyncio\').to_thread(parser.analyze_file_structure_sync, file_bytes, file_name)
+        mapping = await __import__("asyncio").to_thread(parser.analyze_file_structure_sync, file_bytes, file_name)
         # Heuristic correction
         try:
             df_check = read_table(file_bytes, file_name, header=mapping.header_row_index, nrows=15)
-            df_check.columns = [str(c).strip().replace("\n", " ") for c in df_check.columns]
+            df_check.columns = [str(c).strip().replace("\\n", " ") for c in df_check.columns]
             detected = detect_columns_by_keywords(df_check)
             cost_n = str(mapping.cost_price_col or "").strip().lower()
             bad_cost = (not mapping.cost_price_col or cost_n in ("ед", "ед.", "nan", "none") or cost_n.startswith("ед.") or any(x in cost_n for x in ("артикул", "sku", "единиц")))
@@ -148,11 +148,11 @@ async def prompt_mapping_confirm(message: Message, state: FSMContext, mapping):
     await message.answer(
         f"Проверьте колонки:\n\n"
         f"• Шапка: строка {int(header) + 1}\n"
-        f"• Товар: {product or \'—\'}\n"
-        f"• Себестоимость: {cost or \'—\'}\n"
-        f"• Цена продажи: {sell or \'—\'}\n"
-        f"• Количество: {qty or \'—\'}\n"
-        f"• Вес: {weight or \'—\'}\n\n"
+        f"• Товар: {product or '—'}\n"
+        f"• Себестоимость: {cost or '—'}\n"
+        f"• Цена продажи: {sell or '—'}\n"
+        f"• Количество: {qty or '—'}\n"
+        f"• Вес: {weight or '—'}\n\n"
         f"Если бот ошибся — «Изменить колонки».",
         reply_markup=get_mapping_confirm_keyboard(),
     )
@@ -243,7 +243,7 @@ async def prompt_price_column_or_params(message, state: FSMContext, mapping):
         try:
             header_idx = getattr(mapping, "header_row_index", 0) if not isinstance(mapping, dict) else mapping.get("header_row_index", 0)
             df = read_table(file_bytes, data.get("file_name", "f.xlsx"), header=header_idx, nrows=5)
-            df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
+            df.columns = [str(c).strip().replace("\\n", " ") for c in df.columns]
             tiers = list_price_tier_columns(df)
         except Exception:
             tiers = []

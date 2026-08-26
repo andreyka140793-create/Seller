@@ -20,7 +20,7 @@ from services.marginator.utils import clean_numeric_value
 from services.marginator.file_io import resolve_column, detect_columns_by_keywords, detect_weight_column
 from config import PurchasingConfig
 
-_UPLOAD_ROOT = Path("/data/uploads") if os.path.exists("/data") else Path(__import__(\'tempfile\').gettempdir()) / "marginator_uploads"
+_UPLOAD_ROOT = Path("/data/uploads") if os.path.exists("/data") else Path(__import__("tempfile").gettempdir()) / "marginator_uploads"
 
 
 def _cleanup_temp_file(path: str | None) -> None:
@@ -47,7 +47,7 @@ async def _load_file_bytes_from_state(data: dict) -> bytes | None:
 @marginator_router.message(CalcState.confirm_params, F.text.in_({"🚀 Рассчитать", "Рассчитать", "посчитать", "Посчитать"}))
 @marginator_router.callback_query(F.data == "run_calc")
 async def execute_calculation_trigger(update, state: FSMContext):
-    if hasattr(update, \'message\'):
+    if hasattr(update, "message"):
         message = update.message
         user = update.from_user
         await update.answer("Считаю…")

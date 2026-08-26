@@ -14,7 +14,7 @@ from services.marginator.exporter import ExcelExporterService
 from services.marginator.db_service import MarginatorDBService
 from database import SessionLocal
 
-_UPLOAD_ROOT = Path("/data/uploads") if Path("/data").exists() else Path(__import__('tempfile').gettempdir()) / "marginator_uploads"
+_UPLOAD_ROOT = Path("/data/uploads") if Path("/data").exists() else Path(__import__("tempfile").gettempdir()) / "marginator_uploads"
 
 
 @marginator_router.message(CalcState.compare_upload_a, F.document)
@@ -33,9 +33,7 @@ async def compare_receive_a(message: Message, state: FSMContext, bot):
     path = _UPLOAD_ROOT / f"cmp_a_{message.from_user.id}_{doc.file_unique_id}{Path(name).suffix}"
     path.write_bytes(raw)
     await state.update_data(compare_a_path=str(path), compare_a_name=doc.file_name or name)
-    await message.answer(f"Прайс A: {doc.file_name}
-
-Теперь отправьте **второй** прайс (B).")
+    await message.answer(f"Прайс A: {doc.file_name}\n\nТеперь отправьте **второй** прайс (B).")
     await state.set_state(CalcState.compare_upload_b)
 
 
@@ -80,16 +78,9 @@ async def compare_receive_b(message: Message, state: FSMContext, bot):
         out = BufferedInputFile(excel, filename="compare_prices.xlsx")
         await status.delete()
         await message.answer(
-            f"⚖️ Результат сравнения
-• A: {name_a}
-• B: {name_b}
-"
-            f"• Совпало: {len(both)}
-• B выгоднее: {cheaper_b}
-• A выгоднее: {cheaper_a}
-"
-            f"• Только в A: {only_a}
-• Только в B: {only_b}"
+            f"⚖️ Результат сравнения\n• A: {name_a}\n• B: {name_b}\n"
+            f"• Совпало: {len(both)}\n• B выгоднее: {cheaper_b}\n• A выгоднее: {cheaper_a}\n"
+            f"• Только в A: {only_a}\n• Только в B: {only_b}"
         )
         await message.answer_document(out, caption="Сравнение: разница ₽ и %.")
     except Exception:

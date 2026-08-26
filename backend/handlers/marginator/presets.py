@@ -43,16 +43,13 @@ async def apply_preset(callback: CallbackQuery, state: FSMContext):
         if created is not None:
             age_days = (datetime.now(timezone.utc) - created).days if created.tzinfo else (datetime.utcnow() - created).days
             if age_days >= 30:
-                age_note = f"
-
-⚠️ Пресету {age_days} дн. — проверьте цифры."
+                age_note = f"\n\n⚠️ Пресету {age_days} дн. — проверьте цифры."
     except Exception:
         pass
     await callback.message.edit_text(f"✅ Применён пресет: {pr.name}{age_note}")
     if pr.target_margin_percent is not None:
         await state.set_state(CalcState.confirm_params)
-        await callback.message.answer(f"Цель маржинальности: {pr.target_margin_percent}%
-Нажмите «Рассчитать».", reply_markup=get_run_keyboard())
+        await callback.message.answer(f"Цель маржинальности: {pr.target_margin_percent}%\nНажмите «Рассчитать».", reply_markup=get_run_keyboard())
     else:
         from handlers.marginator.params import prompt_target_margin
         await prompt_target_margin(callback.message, state)
