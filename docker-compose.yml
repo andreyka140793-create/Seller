@@ -8,12 +8,17 @@ services:
     environment:
       POSTGRES_DB: trade_agent
       POSTGRES_USER: postgres
-      # Пароль берётся из .env (переменная POSTGRES_PASSWORD), в репозитории не хранится.
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD не задан в .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD not set in .env}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d trade_agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   backend:
     build:
@@ -24,17 +29,24 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD не задан в .env}@db:5432/trade_agent
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/trade_agent
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - XAI_API_KEY=${XAI_API_KEY}
+      - XAI_API_KEY=${XAI_API_KEY:-}
       - GROK_MODEL=${GROK_MODEL:-grok-4.6}
-      - LLM_PROVIDER=${LLM_PROVIDER:-grok}
       - WEB_APP_URL=${WEB_APP_URL}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://web.telegram.org}
+      - ENV=production
     volumes:
-      # Локальный аналог /data на Amvera: SQLite-фолбэк и временные прайс-листы
       - app_data:/data
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
 volumes:
   postgres_data:
