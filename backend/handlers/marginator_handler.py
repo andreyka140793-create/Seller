@@ -521,17 +521,19 @@ async def skip_optional_param(callback: CallbackQuery, state: FSMContext):
 
 @marginator_router.callback_query(F.data == "run_calc")
 async def execute_calculation_cb(callback: CallbackQuery, state: FSMContext):
+    """Кнопка «Рассчитать»: from_user должен быть ПОЛЬЗОВАТЕЛЬ, не бот."""
     await callback.answer("Считаю…")
-    # Переиспользуем message-хендлер через fake-like call
+
     class _Msg:
-        def __init__(self, m):
-            self._m = m
-            self.from_user = m.from_user
-            self.chat = m.chat
-            self.answer = m.answer
-            self.answer_document = m.answer_document
-            self.bot = m.bot
-    await execute_calculation(_Msg(callback.message), state)
+        def __init__(self, message, user):
+            self.from_user = user  # callback.from_user — реальный пользователь
+            self.chat = message.chat
+            self.answer = message.answer
+            self.answer_document = message.answer_document
+            self.bot = message.bot
+            self.message_id = message.message_id
+
+    await execute_calculation(_Msg(callback.message, callback.from_user), state)
 
 
 @marginator_router.callback_query(F.data == "new_calc")
@@ -550,7 +552,7 @@ async def new_calc_cb(callback: CallbackQuery, state: FSMContext):
 @marginator_router.callback_query(F.data == "show_history")
 async def show_history_cb(callback: CallbackQuery):
     await callback.answer()
-    await show_calculation_history(callback.message)
+    await show_calculation_history(callback.message, telegram_id=callback.from_user.id)
 
 
 @marginator_router.message(F.text.in_({"🔄 Новый расчёт", "Новый расчёт"}))
@@ -798,7 +800,7 @@ async def execute_calculation(message: Message, state: FSMContext):
     with SessionLocal() as db:
         upload_record = MarginatorDBService.save_calculation_results(
             db=db,
-            telegram_id=message.from_user.id,
+            telegram_id=int(message.from_user.id),
             filename=file_name,
             calc_mode=calc_mode,
             df_results=df_results,
@@ -831,9 +833,10 @@ async def execute_calculation(message: Message, state: FSMContext):
 # --- /history ---
 
 @marginator_router.message(Command("history"))
-async def show_calculation_history(message: Message):
+async def show_calculation_history(message: Message, telegram_id: int | None = None):
+    uid = int(telegram_id) if telegram_id is not None else int(message.from_user.id)
     with SessionLocal() as db:
-        uploads = MarginatorDBService.get_user_history(db, message.from_user.id)
+        uploads = MarginatorDBService.get_user_history(db, uid)
 
         if not uploads:
             await message.answer("📂 У вас пока нет сохранённых расчётов.")
