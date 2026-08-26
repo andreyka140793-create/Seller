@@ -1,11 +1,8 @@
-"""Сравнение двух прайсов по наименованию / артикулу."""
+"""Price list comparison."""
 from __future__ import annotations
-
 import re
 from typing import Any
-
 import pandas as pd
-
 from services.marginator.utils import clean_numeric_value
 
 
@@ -19,27 +16,16 @@ def _find_col(df: pd.DataFrame, kinds: tuple[str, ...]) -> str | None:
     best, score = None, 0
     for c in df.columns:
         n = str(c).strip().lower().replace("ё", "е")
-        sc = 0
-        for k in kinds:
-            if k in n:
-                sc += 10
+        sc = sum(10 for k in kinds if k in n)
         if sc > score:
             score, best = sc, str(c)
     return best if score >= 10 else None
 
 
 def build_price_index(df: pd.DataFrame) -> dict[str, dict]:
-    """
-    Ключ → {name, sku, price}.
-    Ключ: артикул если есть, иначе нормализованное имя.
-    """
     name_col = _find_col(df, ("наимен", "назван", "товар", "номенклат", "product", "name"))
     sku_col = _find_col(df, ("артикул", "sku", "код товар", "article"))
-    price_col = _find_col(
-        df,
-        ("цена", "price", "руб", "р.", "себестоим", "закуп", "cost", "-i-", "-ii-", "-iii-"),
-    )
-    # исключить «Ед.»
+    price_col = _find_col(df, ("цена", "price", "руб", "р.", "себестоим", "закуп", "cost", "-i-", "-ii-", "-iii-"))
     if price_col and str(price_col).strip().lower() in ("ед", "ед.", "ед.изм"):
         price_col = None
         for c in df.columns:
@@ -63,26 +49,12 @@ def build_price_index(df: pd.DataFrame) -> dict[str, dict]:
         key = _norm_key(sku) if sku and sku.lower() not in ("nan", "none", "") else _norm_key(name)
         if not key or key in ("nan", "none"):
             continue
-        # первая цена; при дублях — меньшая
         if key not in index or price < index[key]["price"]:
-            index[key] = {
-                "name": name or sku or key,
-                "sku": sku,
-                "price": price,
-            }
+            index[key] = {"name": name or sku or key, "sku": sku, "price": price}
     return index
 
 
-def compare_price_lists(
-    df_a: pd.DataFrame,
-    df_b: pd.DataFrame,
-    label_a: str = "Прайс A",
-    label_b: str = "Прайс B",
-) -> pd.DataFrame:
-    """
-    Строки: совпавшие ключи + только в A + только в B.
-    delta_pct: (B - A) / A * 100 — насколько B дороже/дешевле A.
-    """
+def compare_price_lists(df_a: pd.DataFrame, df_b: pd.DataFrame, label_a: str = "A", label_b: str = "B") -> pd.DataFrame:
     ia = build_price_index(df_a)
     ib = build_price_index(df_b)
     keys = sorted(set(ia) | set(ib))
@@ -112,24 +84,16 @@ def compare_price_lists(
             })
         elif a:
             rows.append({
-                "Товар": a["name"],
-                "Артикул": a.get("sku") or "",
-                f"Цена {label_a}, ₽": a["price"],
-                f"Цена {label_b}, ₽": None,
-                "Разница, ₽": None,
-                "Разница %": None,
-                "Статус": "только в A",
-                "Вывод": "нет в B",
+                "Товар": a["name"], "Артикул": a.get("sku") or "",
+                f"Цена {label_a}, ₽": a["price"], f"Цена {label_b}, ₽": None,
+                "Разница, ₽": None, "Разница %": None,
+                "Статус": "только в A", "Вывод": "нет в B",
             })
         else:
             rows.append({
-                "Товар": b["name"],
-                "Артикул": b.get("sku") or "",
-                f"Цена {label_a}, ₽": None,
-                f"Цена {label_b}, ₽": b["price"],
-                "Разница, ₽": None,
-                "Разница %": None,
-                "Статус": "только в B",
-                "Вывод": "нет в A",
+                "Товар": b["name"], "Артикул": b.get("sku") or "",
+                f"Цена {label_a}, ₽": None, f"Цена {label_b}, ₽": b["price"],
+                "Разница, ₽": None, "Разница %": None,
+                "Статус": "только в B", "Вывод": "нет в A",
             })
     return pd.DataFrame(rows)

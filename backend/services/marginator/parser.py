@@ -1,4 +1,4 @@
-"""File parsing: table / text / image → TableMappingSchema + DataFrame."""
+"""File parsing: table / text / image -> TableMappingSchema + DataFrame."""
 from __future__ import annotations
 import io
 import json
@@ -43,8 +43,7 @@ class ExcelParserService:
                 df_headed.columns = [str(x).strip() for x in df_headed.iloc[header_idx].tolist()]
                 df_headed = df_headed.iloc[header_idx + 1:].reset_index(drop=True)
 
-        df_headed.columns = [str(c).strip().replace("
-", " ") for c in df_headed.columns]
+        df_headed.columns = [str(col).strip().replace("\n", " ") for col in df_headed.columns]
         detected = detect_columns_by_keywords(df_headed)
         cols = list(df_headed.columns)
 
@@ -81,8 +80,7 @@ class ExcelParserService:
   "commission_col": null,
   "quantity_col": <string|null>
 }}
-Данные:
-{raw_preview}
+Данные:\n{raw_preview}
 Важно: «Ед.» = единица измерения, не цена.
 """
         raw = generate_json(prompt, temperature=0.0)
@@ -98,8 +96,7 @@ class ExcelParserService:
         text = (doc.text or "")[:8000]
         prompt = f"""Из текста прайса извлеки структуру. Верни JSON с полями:
 header_row_index, product_name_col, cost_price_col, selling_price_col, commission_col, quantity_col.
-Текст:
-{text}"""
+Текст:\n{text}"""
         raw = generate_json(prompt, temperature=0.0)
         if raw:
             try:
@@ -113,7 +110,7 @@ header_row_index, product_name_col, cost_price_col, selling_price_col, commissio
         )
 
     def _analyze_image_sync(self, doc: LoadedDocument) -> TableMappingSchema:
-        prompt = "На изображении прайс-лист. Верни JSON с колонками. Цена ≠ артикул ≠ единица измерения."
+        prompt = "На изображении прайс-лист. Верни JSON с колонками. Цена != артикул != единица измерения."
         raw = generate_json_from_image(prompt, doc.image_bytes or b"", doc.image_mime or "image/jpeg")
         if raw:
             try:
@@ -132,8 +129,7 @@ header_row_index, product_name_col, cost_price_col, selling_price_col, commissio
             if 0 <= h < 20:
                 try:
                     df_ai = read_table(file_bytes, file_name, header=h, nrows=3)
-                    df_ai.columns = [str(c).strip().replace("
-", " ") for c in df_ai.columns]
+                    df_ai.columns = [str(c).strip().replace("\n", " ") for c in df_ai.columns]
                 except Exception:
                     df_ai = df_headed
                     h = default.header_row_index
@@ -198,8 +194,7 @@ header_row_index, product_name_col, cost_price_col, selling_price_col, commissio
                 if header_row_index < len(df):
                     df.columns = [str(x).strip() for x in df.iloc[header_row_index].tolist()]
                     df = df.iloc[header_row_index + 1:].reset_index(drop=True)
-            df.columns = [str(col).strip().replace("
-", " ") for col in df.columns]
+            df.columns = [str(col).strip().replace("\n", " ") for col in df.columns]
             return df.dropna(how="all")
 
         if doc.kind == "text" and doc.text:
@@ -211,8 +206,7 @@ header_row_index, product_name_col, cost_price_col, selling_price_col, commissio
     def _text_to_dataframe(self, text: str, mapping) -> pd.DataFrame:
         prompt = f"""Извлеки из текста прайса список товаров. Верни JSON:
 {{"items": [{{"name": "...", "price": 123.45}}]}}
-Текст:
-{text[:10000]}"""
+Текст:\n{text[:10000]}"""
         raw = generate_json(prompt, temperature=0.0)
         items = []
         if raw:

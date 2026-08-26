@@ -18,8 +18,7 @@ def verify_telegram_init_data(init_data: str, bot_token: str, max_age_sec: int =
             return None
 
         hash_to_check = parsed_data.pop("hash")
-        data_check_string = "
-".join(
+        data_check_string = "\n".join(
             f"{k}={v}" for k, v in sorted(parsed_data.items(), key=lambda x: x[0])
         )
         secret_key = hmac.new(

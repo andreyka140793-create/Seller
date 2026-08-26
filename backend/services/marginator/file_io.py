@@ -49,8 +49,7 @@ def read_table(file_bytes: bytes, file_name: str, *, header: int | None = None, 
 
 def _norm(s: object) -> str:
     text = str(s) if s is not None else ""
-    text = text.replace("
-", " ").replace("", " ")
+    text = text.replace("\n", " ").replace("\r", " ")
     text = re.sub(r"\s+", " ", text).strip().lower()
     return text
 
@@ -122,7 +121,7 @@ def _score_price_column(col_name: object) -> int:
             score += 8
     if re.search(r"\d+\s*р", n) or re.search(r"\d+\s*руб", n):
         score += 20
-    if re.search(r"-i+-|-ii+-|-iii+-|-iv+-", n) or re.search(r"i+|ii+|iii+", n):
+    if re.search(r"-i+-|-ii+-|-iii+-|-iv+-", n) or re.search(r"\bi+\b|\bii+\b|\biii+\b", n):
         score += 12
     if "от " in n and "до " in n:
         score += 10
@@ -162,7 +161,7 @@ def detect_columns_by_keywords(df: pd.DataFrame) -> dict[str, str | None]:
                 if v is None or (isinstance(v, float) and pd.isna(v)):
                     continue
                 total += 1
-                s = str(v).replace(" ", "").replace(" ", "").replace(",", ".")
+                s = str(v).replace(" ", "").replace("\xa0", "").replace(",", ".")
                 s = re.sub(r"[^\d.]", "", s)
                 try:
                     if s and float(s) > 0:
