@@ -91,14 +91,29 @@ async def fail_current_keep_queue(state: FSMContext, *, cleanup_path: bool = Tru
     return len(queue)
 
 
-def queue_continue_keyboard(queue_len: int):
+def queue_continue_keyboard(queue_len: int, *, after_success: bool = False):
+    """Клавиатура очереди. after_success=True — после удачного расчёта (те же параметры)."""
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     rows = []
     if queue_len > 0:
-        rows.append([InlineKeyboardButton(
-            text=f"➡️ Следующий из очереди ({queue_len})",
-            callback_data="queue_next",
-        )])
+        if after_success:
+            rows.append([InlineKeyboardButton(
+                text=f"⚡ Следующий с теми же параметрами ({queue_len})",
+                callback_data="queue_next_same",
+            )])
+            rows.append([InlineKeyboardButton(
+                text=f"🚀 Всю очередь с теми же параметрами",
+                callback_data="queue_all_same",
+            )])
+            rows.append([InlineKeyboardButton(
+                text="➡️ Следующий (заново настроить)",
+                callback_data="queue_next",
+            )])
+        else:
+            rows.append([InlineKeyboardButton(
+                text=f"➡️ Следующий из очереди ({queue_len})",
+                callback_data="queue_next",
+            )])
     rows.append([InlineKeyboardButton(
         text="🗑 Очистить очередь и выйти",
         callback_data="queue_clear",
@@ -108,6 +123,28 @@ def queue_continue_keyboard(queue_len: int):
         callback_data="new_calc",
     )])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+# Параметры, которые переносим на следующий файл очереди
+_QUEUE_PARAM_KEYS = (
+    "calc_mode",
+    "commission_percent",
+    "logistics_cost",
+    "packaging_cost",
+    "tax_rate_percent",
+    "tax_mode",
+    "freight_cost",
+    "manager_bonus_percent",
+    "is_vat_included",
+    "target_margin_percent",
+    "fx_rate",
+    "fx_code",
+    "logistics_per_kg",
+)
+
+
+def _snapshot_params(data: dict) -> dict:
+    return {k: data.get(k) for k in _QUEUE_PARAM_KEYS if data.get(k) is not None}
 
 async def _enqueue_file(state: FSMContext, path: str, file_name: str) -> int:
     data = await state.get_data()
@@ -184,7 +221,8 @@ async def process_price_file(
     except Exception as e:
         _cleanup_temp_file(temp_path)
         qlen = await fail_current_keep_queue(state, cleanup_path=False)
-        err_text = f"❌ Ошибка при анализе `{file_name}`: {type(e).__name__}: {e}"
+        from services.marginator.document_loader import friendly_load_error
+        err_text = "❌ " + friendly_load_error(e, file_name)
         try:
             await status_msg.edit_text(err_text[:500], parse_mode="Markdown")
         except Exception:
@@ -434,6 +472,16 @@ async def mapping_pick_col(callback, state: FSMContext):
 
 
 async def prompt_parameter_setup(message, state: FSMContext):
+    data0 = await state.get_data()
+    if data0.get("reuse_params"):
+        await state.update_data(reuse_params=False)
+        from handlers.marginator.params import show_params_summary
+        await message.answer(
+            "Параметры прошлого расчёта уже подставлены. "
+            "Проверьте сводку и нажмите «Рассчитать»."
+        )
+        await show_params_summary(message, state)
+        return
     data = await state.get_data()
     mode = data.get("calc_mode", "marketplace")
     uid = message.from_user.id if message.from_user else None
@@ -458,7 +506,7 @@ async def prompt_price_column_or_params(message, state: FSMContext, mapping):
         try:
             header_idx = getattr(mapping, "header_row_index", 0) if not isinstance(mapping, dict) else mapping.get("header_row_index", 0)
             df = read_table(file_bytes, data.get("file_name", "f.xlsx"), header=header_idx, nrows=5)
-            df.columns = [str(c).strip().replace("\\n", " ") for c in df.columns]
+            df.columns = [str(c).strip().replace("\n", " ") for c in df.columns]
             tiers = list_price_tier_columns(df)
         except Exception:
             tiers = []
@@ -500,6 +548,132 @@ async def cancel_flow_price_col(callback: CallbackQuery, state: FSMContext):
     await state.clear()
 
 
+
+
+async def process_queue_item_same_params(
+    message: Message,
+    state: FSMContext,
+    *,
+    params: dict,
+) -> bool:
+    """Один файл из очереди: авто-маппинг + те же параметры + сразу расчёт."""
+    data = await state.get_data()
+    queue = list(data.get("file_queue") or [])
+    if not queue:
+        return False
+
+    item = queue.pop(0)
+    path = item.get("path")
+    name = item.get("name") or "price.xlsx"
+    await state.update_data(file_queue=queue)
+
+    if not path or not Path(path).is_file():
+        await message.answer(f"⚠️ Пропуск: файл недоступен `{name}`", parse_mode="Markdown")
+        return True
+
+    await message.answer(f"⚡ Очередь → `{name}` (те же параметры)…", parse_mode="Markdown")
+    file_bytes = Path(path).read_bytes()
+
+    try:
+        parser = ExcelParserService(api_key=os.getenv("XAI_API_KEY"))
+        mapping = await __import__("asyncio").to_thread(
+            parser.analyze_file_structure_sync, file_bytes, name
+        )
+        try:
+            df_check = read_table(file_bytes, name, header=mapping.header_row_index, nrows=15)
+            df_check.columns = [str(c).strip().replace("\n", " ") for c in df_check.columns]
+            detected = detect_columns_by_keywords(df_check)
+            if detected.get("cost_price_col") and (
+                not mapping.cost_price_col
+                or str(mapping.cost_price_col).lower() in ("ед", "ед.", "nan")
+            ):
+                mapping.cost_price_col = detected["cost_price_col"]
+            if detected.get("product_name_col") and not mapping.product_name_col:
+                mapping.product_name_col = detected["product_name_col"]
+        except Exception:
+            pass
+
+        await state.update_data(
+            file_path=path,
+            file_name=name,
+            mapping=mapping.model_dump() if hasattr(mapping, "model_dump") else mapping,
+            upload_busy=True,
+            **params,
+        )
+        await state.set_state(CalcState.confirm_params)
+
+        from handlers.marginator.calculation import execute_calculation_core
+        data2 = await state.get_data()
+        user_id = message.from_user.id if message.from_user else 0
+        await execute_calculation_core(message, state, data2, file_bytes, user_id)
+        return True
+    except Exception as e:
+        _cleanup_temp_file(path)
+        import logging
+        logging.getLogger(__name__).exception("queue same-params failed")
+        qlen = len((await state.get_data()).get("file_queue") or [])
+        await message.answer(
+            f"❌ `{name}`: {type(e).__name__}: {e}",
+            parse_mode="Markdown",
+            reply_markup=queue_continue_keyboard(qlen, after_success=False),
+        )
+        await state.update_data(upload_busy=False)
+        return False
+
+
+@marginator_router.callback_query(F.data == "queue_next_same")
+async def cb_queue_next_same(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    data = await state.get_data()
+    params = _snapshot_params(data)
+    if data.get("file_path"):
+        _cleanup_temp_file(data.get("file_path"))
+    await state.update_data(file_path=None, mapping=None)
+    ok = await process_queue_item_same_params(callback.message, state, params=params)
+    left = (await state.get_data()).get("file_queue") or []
+    if not ok and not left:
+        await callback.message.answer(
+            "Очередь пуста.",
+            reply_markup=get_main_reply_keyboard(),
+        )
+
+
+@marginator_router.callback_query(F.data == "queue_all_same")
+async def cb_queue_all_same(callback: CallbackQuery, state: FSMContext):
+    await callback.answer("Считаю всю очередь…")
+    data = await state.get_data()
+    params = _snapshot_params(data)
+    if data.get("file_path"):
+        _cleanup_temp_file(data.get("file_path"))
+    await state.update_data(file_path=None, mapping=None)
+
+    processed = 0
+    while True:
+        data = await state.get_data()
+        if not data.get("file_queue"):
+            break
+        ok = await process_queue_item_same_params(callback.message, state, params=params)
+        if not ok:
+            break
+        processed += 1
+        if processed >= 20:
+            await callback.message.answer("Остановка: лимит 20 файлов за раз.")
+            break
+
+    data = await state.get_data()
+    left = len(data.get("file_queue") or [])
+    if left:
+        await callback.message.answer(
+            f"Готово частично. Осталось в очереди: {left}",
+            reply_markup=queue_continue_keyboard(left, after_success=True),
+        )
+    else:
+        await callback.message.answer(
+            f"✅ Очередь обработана ({processed} файл(ов)).",
+            reply_markup=get_main_reply_keyboard(),
+        )
+
+
 @marginator_router.callback_query(F.data == "queue_next")
 async def cb_queue_next(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -519,3 +693,55 @@ async def cb_queue_next(callback: CallbackQuery, state: FSMContext):
             "Очередь пуста. Отправьте новый прайс или «🔄 Новый расчёт».",
             reply_markup=get_main_reply_keyboard(),
         )
+
+
+@marginator_router.callback_query(F.data == "same_params_new")
+async def cb_same_params_new_file(callback: CallbackQuery, state: FSMContext):
+    """Новый прайс, но комиссия/лог/налог/курс/порог риска те же."""
+    await callback.answer()
+    data = await state.get_data()
+    # чистим только файл, параметры оставляем
+    if data.get("file_path"):
+        _cleanup_temp_file(data.get("file_path"))
+    keep = {
+        k: data.get(k)
+        for k in (
+            "calc_mode",
+            "commission_percent",
+            "logistics_cost",
+            "packaging_cost",
+            "tax_rate_percent",
+            "tax_mode",
+            "freight_cost",
+            "manager_bonus_percent",
+            "is_vat_included",
+            "vat_rate_percent",
+            "target_margin_percent",
+            "fx_rate",
+            "fx_code",
+            "logistics_per_kg",
+            "risk_threshold_percent",
+        )
+        if data.get(k) is not None
+    }
+    # не затираем очередь целиком — пользователь может слать новый файл
+    queue = data.get("file_queue") or []
+    await state.set_state(CalcState.upload_file)
+    await state.update_data(
+        file_path=None,
+        file_name=None,
+        mapping=None,
+        upload_busy=False,
+        file_queue=queue,
+        reuse_params=True,
+        **keep,
+    )
+    mode = keep.get("calc_mode", "marketplace")
+    await callback.message.answer(
+        "📎 *Новый файл с теми же параметрами*\n\n"
+        f"Режим: {mode}\n"
+        "Параметры (комиссия, логистика, налог, курс, порог риска) сохранены.\n\n"
+        "Пришлите следующий прайс — сразу к проверке колонок и расчёту.",
+        parse_mode="Markdown",
+        reply_markup=get_main_reply_keyboard(),
+    )

@@ -7,30 +7,63 @@ from handlers.marginator.router import marginator_router
 from states.marginator_states import CalcState
 from keyboards.marginator_keyboards import (
     get_skip_keyboard, get_target_margin_keyboard, get_run_keyboard,
-    get_main_reply_keyboard,
+    get_main_reply_keyboard, get_risk_threshold_keyboard,
 )
 from config import PurchasingConfig
 
 
 @marginator_router.callback_query(CalcState.input_commission, F.data == "params_default")
 async def params_default(callback: CallbackQuery, state: FSMContext):
+    """Сначала — последние параметры пользователя, иначе системный default."""
     await callback.answer()
     data = await state.get_data()
     mode = data.get("calc_mode", "marketplace")
-    if mode == "b2b":
-        await state.update_data(
-            freight_cost=0.0, manager_bonus_percent=0.0,
-            is_vat_included=True, vat_rate_percent=20.0,
-        )
-    else:
-        await state.update_data(
-            commission_percent=PurchasingConfig.DEFAULT_MP_COMMISSION_PCT,
-            logistics_cost=PurchasingConfig.DEFAULT_LOGISTICS_RUB,
-            packaging_cost=PurchasingConfig.DEFAULT_PACKAGING_RUB,
-            tax_rate_percent=PurchasingConfig.DEFAULT_TAX_PCT,
-            tax_mode="usn_6",
-        )
-    await callback.message.edit_text("✅ Применены значения по умолчанию.")
+    applied_last = False
+    try:
+        from database import SessionLocal
+        from services.marginator.db_service import MarginatorDBService
+        with SessionLocal() as db:
+            last = MarginatorDBService.get_last_params(db, callback.from_user.id)
+        if last is not None:
+            await state.update_data(
+                calc_mode=last.calc_mode or mode,
+                commission_percent=last.commission_percent,
+                logistics_cost=last.logistics_cost,
+                packaging_cost=last.packaging_cost,
+                tax_rate_percent=last.tax_rate_percent,
+                tax_mode=last.tax_mode or "usn_6",
+                freight_cost=last.freight_cost or 0.0,
+                manager_bonus_percent=last.manager_bonus_percent or 0.0,
+                is_vat_included=bool(last.is_vat_included),
+                vat_rate_percent=last.vat_rate_percent or 20.0,
+                target_margin_percent=last.target_margin_percent,
+            )
+            applied_last = True
+            await callback.message.edit_text(
+                f"✅ Подставлены **ваши последние** параметры\n"
+                f"(комиссия {last.commission_percent:g}%, "
+                f"логистика {last.logistics_cost:g} ₽, "
+                f"налог {last.tax_rate_percent:g}%).",
+                parse_mode="Markdown",
+            )
+    except Exception:
+        applied_last = False
+
+    if not applied_last:
+        if mode == "b2b":
+            await state.update_data(
+                freight_cost=0.0, manager_bonus_percent=0.0,
+                is_vat_included=True, vat_rate_percent=20.0,
+            )
+        else:
+            await state.update_data(
+                commission_percent=PurchasingConfig.DEFAULT_MP_COMMISSION_PCT,
+                logistics_cost=PurchasingConfig.DEFAULT_LOGISTICS_RUB,
+                packaging_cost=PurchasingConfig.DEFAULT_PACKAGING_RUB,
+                tax_rate_percent=PurchasingConfig.DEFAULT_TAX_PCT,
+                tax_mode="usn_6",
+            )
+        await callback.message.edit_text("✅ Применены значения по умолчанию.")
     await prompt_target_margin(callback.message, state)
 
 
@@ -173,7 +206,7 @@ async def target_margin_cb(callback: CallbackQuery, state: FSMContext):
         except ValueError:
             await state.update_data(target_margin_percent=None)
     await callback.answer()
-    await show_params_summary(callback.message, state)
+    await prompt_risk_threshold(callback.message, state)
 
 
 @marginator_router.message(CalcState.input_target_margin)
@@ -184,6 +217,44 @@ async def target_margin_text(message: Message, state: FSMContext):
         await state.update_data(target_margin_percent=val)
     except ValueError:
         await state.update_data(target_margin_percent=None)
+    await prompt_risk_threshold(message, state)
+
+
+async def prompt_risk_threshold(message, state: FSMContext):
+    from config import PurchasingConfig
+    default = getattr(PurchasingConfig, "DEFAULT_RISK_MARGIN_PCT", 5.0)
+    await message.answer(
+        "⚠️ *Порог зоны риска*\n\n"
+        "Позиции с *маржинальностью ниже* этого % попадут на лист «Риск» "
+        "и в блок риска в отчёте.\n\n"
+        f"Обычно берут *{default:g}%*. Можно жёстче (3%) или мягче (10–15%).",
+        reply_markup=get_risk_threshold_keyboard(),
+        parse_mode="Markdown",
+    )
+    await state.set_state(CalcState.input_risk_threshold)
+
+
+@marginator_router.callback_query(CalcState.input_risk_threshold, F.data.startswith("risk_th_"))
+async def risk_threshold_cb(callback: CallbackQuery, state: FSMContext):
+    raw = (callback.data or "").replace("risk_th_", "")
+    try:
+        val = float(raw)
+        val = max(0.0, min(50.0, val))
+    except ValueError:
+        val = 5.0
+    await state.update_data(risk_threshold_percent=val)
+    await callback.answer(f"Порог {val:g}%")
+    await show_params_summary(callback.message, state)
+
+
+@marginator_router.message(CalcState.input_risk_threshold)
+async def risk_threshold_text(message: Message, state: FSMContext):
+    try:
+        val = float((message.text or "").replace(",", ".").replace("%", "").strip())
+        val = max(0.0, min(50.0, val))
+    except ValueError:
+        val = 5.0
+    await state.update_data(risk_threshold_percent=val)
     await show_params_summary(message, state)
 
 

@@ -170,15 +170,20 @@ async def execute_calculation_core(message, state: FSMContext, data: dict, file_
         )
         upload_id = upload_record.id
 
-    summary = await asyncio.to_thread(AnalyticsService.generate_summary, df_results, file_name)
+    risk_th = float(data.get("risk_threshold_percent", 5) or 5)
+    summary = await asyncio.to_thread(
+        AnalyticsService.generate_summary, df_results, file_name, risk_th
+    )
     summary_text = AnalyticsService.format_summary_message(summary)
-    excel_bytes = await asyncio.to_thread(ExcelExporterService.export_results_to_excel, df_results)
+    excel_bytes = await asyncio.to_thread(
+        ExcelExporterService.export_results_to_excel, df_results, risk_th
+    )
     out_name = Path(file_name).stem + "_marginator.xlsx"
     document = BufferedInputFile(excel_bytes, filename=out_name)
 
     await status_msg.delete()
     await message.answer(summary_text, reply_markup=get_webapp_keyboard(upload_id), parse_mode="Markdown")
-    await message.answer_document(document=document, caption="Excel: Справка / Все / Риск / Топ. Цвета ≥20% / 5–20% / <5%. Команда /terms", parse_mode="Markdown")
+    await message.answer_document(document=document, caption=f"Excel: Справка / Все / Риск / Топ. Риск < {risk_th:g}%. /terms", parse_mode="Markdown")
 
     await state.update_data(last_upload_id=upload_id, upload_busy=False)
     await state.set_state(CalcState.confirm_params)
