@@ -1,6 +1,6 @@
 """Basic bot commands and text button handlers."""
 from aiogram import F
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 
