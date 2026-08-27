@@ -120,6 +120,22 @@ def get_target_margin_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def get_risk_threshold_keyboard() -> InlineKeyboardMarkup:
+    """Порог зоны риска по маржинальности %."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="3%", callback_data="risk_th_3"),
+            InlineKeyboardButton(text="5% (обычный)", callback_data="risk_th_5"),
+            InlineKeyboardButton(text="10%", callback_data="risk_th_10"),
+        ],
+        [
+            InlineKeyboardButton(text="15%", callback_data="risk_th_15"),
+            InlineKeyboardButton(text="20%", callback_data="risk_th_20"),
+        ],
+        [InlineKeyboardButton(text="Оставить 5%", callback_data="risk_th_5")],
+    ])
+
+
 def get_run_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 Рассчитать", callback_data="run_calc")],
@@ -168,6 +184,7 @@ def get_history_keyboard(uploads: list) -> InlineKeyboardMarkup:
 
 def get_after_report_keyboard(webapp_url: str | None = None) -> InlineKeyboardMarkup:
     rows = [
+        [InlineKeyboardButton(text="📎 Новый файл с теми же параметрами", callback_data="same_params_new")],
         [
             InlineKeyboardButton(text="Комиссия −2%", callback_data="whatif_comm_-2"),
             InlineKeyboardButton(text="Комиссия +2%", callback_data="whatif_comm_+2"),
