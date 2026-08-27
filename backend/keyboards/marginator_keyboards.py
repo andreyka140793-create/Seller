@@ -14,7 +14,7 @@ def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🔄 Новый расчёт"), KeyboardButton(text="📂 История")],
-            [KeyboardButton(text="📖 Помощь"), KeyboardButton(text="❌ Отмена")],
+            [KeyboardButton(text="📖 Помощь"), KeyboardButton(text="📖 Термины"), KeyboardButton(text="❌ Отмена")],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -64,13 +64,13 @@ def get_params_keyboard_with_presets(presets: list, mode: str = "marketplace") -
     rows = []
     if mode == "b2b":
         rows.append([InlineKeyboardButton(
-            text="⚡ По умолчанию (фрахт 0, бонус 0%, НДС 20%)",
+            text="⭐ Последние / по умолчанию (B2B)",
             callback_data="params_default",
         )])
     else:
         rows.append([InlineKeyboardButton(
             text=(
-                f"⚡ По умолчанию ({PurchasingConfig.DEFAULT_MP_COMMISSION_PCT}% / "
+                f"⭐ Последние / умолч. ({PurchasingConfig.DEFAULT_MP_COMMISSION_PCT}% / "
                 f"{PurchasingConfig.DEFAULT_LOGISTICS_RUB}₽ / "
                 f"{PurchasingConfig.DEFAULT_TAX_PCT}%)"
             ),
