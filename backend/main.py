@@ -15,7 +15,7 @@ from database import engine, Base, get_db
 import models
 from config import PurchasingConfig
 from bot import get_bot_and_dp
-from handlers.marginator.router import marginator_router
+from handlers.marginator import marginator_router  # triggers __init__ -> registers all handlers
 from services.marginator.auth import verify_telegram_init_data
 
 # ── Rate limiting (in-memory, per IP+path) ──
