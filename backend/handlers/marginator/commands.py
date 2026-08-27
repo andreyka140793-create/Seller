@@ -39,8 +39,9 @@ async def _clear_state_and_cleanup(state: FSMContext) -> None:
 async def cmd_start(message: Message, state: FSMContext):
     await _clear_state_and_cleanup(state)
     await message.answer(
-        "👋 Привет! Я Marginator — помогу рассчитать юнит-экономику товаров.\n\n"
-        "Отправьте прайс-лист (Excel/CSV) или нажмите «🔄 Новый расчёт».",
+        "Привет! Я Marginator — юнит-экономика по прайсу.\n\n"
+        "Отправьте прайс или «Новый расчёт».\n"
+        "Термины: /terms",
         reply_markup=get_main_reply_keyboard(),
     )
 
@@ -48,21 +49,34 @@ async def cmd_start(message: Message, state: FSMContext):
 @marginator_router.message(Command("help"))
 async def cmd_help(message: Message):
     await message.answer(
-        "📖 *Marginator — помощь*\n\n"
-        "*Команды:*\n"
-        "/start — начать\n"
-        "/help — эта справка\n"
-        "/history — история расчётов\n"
-        "/cancel — отменить текущий расчёт\n\n"
-        "*Как пользоваться:*\n"
-        "1. Нажмите «🔄 Новый расчёт»\n"
-        "2. Выберите режим (Маркетплейс / B2B)\n"
-        "3. Отправьте файл прайса\n"
-        "4. Проверьте распознанные колонки\n"
-        "5. Настройте параметры и нажмите «Рассчитать»\n\n"
-        "*Поддерживаемые форматы:* .xlsx, .xls, .csv, .txt, .docx, .pdf, .jpg, .png",
-        parse_mode="Markdown",
+        "\n".join([
+            "Marginator — помощь",
+            "",
+            "Команды:",
+            "/start — начать",
+            "/help — эта справка",
+            "/history — история расчётов",
+            "/terms — маржа, наценка, ROI",
+            "/cancel — отменить",
+            "",
+            "Как пользоваться:",
+            "1. Новый расчёт",
+            "2. Режим Маркетплейс / B2B",
+            "3. Файл прайса",
+            "4. Проверка колонок",
+            "5. Параметры и Рассчитать",
+            "",
+            "Форматы: Excel, CSV, YML/XML, PDF, Word, JSON, фото, ZIP",
+            "В Excel первый лист — Справка по терминам.",
+        ])
     )
+
+
+@marginator_router.message(Command("terms"))
+@marginator_router.message(F.text.in_({"📖 Термины", "Термины", "/terms"}))
+async def cmd_terms(message: Message):
+    from services.marginator.analytics import AnalyticsService
+    await message.answer(AnalyticsService.glossary_message(), parse_mode="Markdown")
 
 
 @marginator_router.message(Command("history"))
@@ -74,21 +88,18 @@ async def cmd_history(message: Message):
 @marginator_router.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext):
     data = await state.get_data()
-    file_path = data.get("file_path")
-    if file_path:
-        from pathlib import Path
-        Path(file_path).unlink(missing_ok=True)
+    _cleanup_temp_file(data.get("file_path"))
+    for item in data.get("file_queue") or []:
+        if isinstance(item, dict):
+            _cleanup_temp_file(item.get("path"))
     await state.clear()
-    await message.answer("❌ Действие отменено.", reply_markup=get_main_reply_keyboard())
+    await message.answer("Действие отменено.", reply_markup=get_main_reply_keyboard())
 
 
 @marginator_router.message(F.text == "🔄 Новый расчёт")
 async def btn_new_calc(message: Message, state: FSMContext):
     await _clear_state_and_cleanup(state)
-    await message.answer(
-        "Выберите режим расчёта:",
-        reply_markup=get_mode_keyboard(),
-    )
+    await message.answer("Выберите режим расчёта:", reply_markup=get_mode_keyboard())
     await state.set_state(CalcState.select_mode)
 
 
@@ -112,30 +123,22 @@ async def btn_cancel(message: Message, state: FSMContext):
 async def cb_new_calc(callback, state: FSMContext):
     await callback.answer()
     await _clear_state_and_cleanup(state)
-    await callback.message.answer(
-        "Выберите режим расчёта:",
-        reply_markup=get_mode_keyboard(),
-    )
+    await callback.message.answer("Выберите режим расчёта:", reply_markup=get_mode_keyboard())
     await state.set_state(CalcState.select_mode)
 
 
 @marginator_router.callback_query(F.data == "cancel_flow")
 async def cb_cancel_flow(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    data = await state.get_data()
-    file_path = data.get("file_path")
-    if file_path:
-        from pathlib import Path
-        Path(file_path).unlink(missing_ok=True)
-    await state.clear()
-    await callback.message.answer("❌ Отменено.", reply_markup=get_main_reply_keyboard())
+    await _clear_state_and_cleanup(state)
+    await callback.message.answer("Отменено.", reply_markup=get_main_reply_keyboard())
 
 
 @marginator_router.callback_query(CalcState.select_mode, F.data == "mode_marketplace")
 async def select_mode_marketplace(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.update_data(calc_mode="marketplace")
-    await callback.message.edit_text("🛒 Режим: Маркетплейс (WB / Ozon)")
+    await callback.message.edit_text("Режим: Маркетплейс (WB / Ozon)")
     await callback.message.answer("Отправьте файл прайса:")
     await state.set_state(CalcState.upload_file)
 
@@ -144,7 +147,7 @@ async def select_mode_marketplace(callback: CallbackQuery, state: FSMContext):
 async def select_mode_b2b(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.update_data(calc_mode="b2b")
-    await callback.message.edit_text("🏢 Режим: B2B (опт / НДС)")
+    await callback.message.edit_text("Режим: B2B (опт / НДС)")
     await callback.message.answer("Отправьте файл прайса:")
     await state.set_state(CalcState.upload_file)
 
@@ -153,6 +156,6 @@ async def select_mode_b2b(callback: CallbackQuery, state: FSMContext):
 async def select_mode_compare(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.update_data(calc_mode="compare")
-    await callback.message.edit_text("⚖️ Режим: Сравнение 2 прайсов")
-    await callback.message.answer("Отправьте **первый** прайс (A):")
+    await callback.message.edit_text("Режим: Сравнение 2 прайсов")
+    await callback.message.answer("Отправьте первый прайс (A):")
     await state.set_state(CalcState.compare_upload_a)

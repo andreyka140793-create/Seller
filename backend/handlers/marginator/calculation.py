@@ -170,7 +170,7 @@ async def execute_calculation_core(message, state: FSMContext, data: dict, file_
         )
         upload_id = upload_record.id
 
-    summary = await asyncio.to_thread(AnalyticsService.generate_summary, df_results)
+    summary = await asyncio.to_thread(AnalyticsService.generate_summary, df_results, file_name)
     summary_text = AnalyticsService.format_summary_message(summary)
     excel_bytes = await asyncio.to_thread(ExcelExporterService.export_results_to_excel, df_results)
     out_name = Path(file_name).stem + "_marginator.xlsx"
@@ -178,28 +178,28 @@ async def execute_calculation_core(message, state: FSMContext, data: dict, file_
 
     await status_msg.delete()
     await message.answer(summary_text, reply_markup=get_webapp_keyboard(upload_id), parse_mode="Markdown")
-    await message.answer_document(document=document, caption="📥 Полный Excel-файл со всеми позициями.", parse_mode="Markdown")
+    await message.answer_document(document=document, caption="Excel: Справка / Все / Риск / Топ. Цвета ≥20% / 5–20% / <5%. Команда /terms", parse_mode="Markdown")
 
     await state.update_data(last_upload_id=upload_id, upload_busy=False)
     await state.set_state(CalcState.confirm_params)
+
+    # запомнить параметры для следующего прайса
+    try:
+        with SessionLocal() as db:
+            MarginatorDBService.save_last_params(db, user_id, data)
+    except Exception:
+        pass
 
     # Очередь следующих прайсов
     data_after = await state.get_data()
     if data_after.get("file_queue"):
         n = len(data_after["file_queue"])
+        from handlers.marginator.upload import queue_continue_keyboard
         await message.answer(
             f"📋 В очереди ещё {n} файл(ов).\n"
-            "Нажмите «➡️ Следующий файл» или «🔄 Новый расчёт».",
-            reply_markup=__import__(
-                "aiogram.types", fromlist=["InlineKeyboardMarkup", "InlineKeyboardButton"]
-            ).InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [__import__("aiogram.types", fromlist=["InlineKeyboardButton"]).InlineKeyboardButton(
-                        text="➡️ Следующий файл из очереди",
-                        callback_data="queue_next",
-                    )],
-                ]
-            ),
+            "Можно посчитать **со теми же параметрами** или настроить заново.",
+            reply_markup=queue_continue_keyboard(n, after_success=True),
+            parse_mode="Markdown",
         )
 
 
@@ -214,10 +214,14 @@ async def _calc_marketplace(df, product_col, cost_col, sell_col, qty_col, data, 
 
     total_rows = len(df)
     results = []
+    skipped = 0
     for n, (_, row) in enumerate(df.iterrows(), 1):
         try:
             raw_name = row.get(product_col)
             product_name = str(raw_name).strip() if pd.notna(raw_name) else ""
+            if not product_name or product_name.lower() in ("nan", "none", "-", "—"):
+                skipped += 1
+                continue
             if not product_name or product_name.lower() in ("название", "наименование", "товар", "none", "nan"):
                 continue
             cost_price = clean_numeric_value(row.get(cost_col))
@@ -267,6 +271,13 @@ async def _calc_marketplace(df, product_col, cost_col, sell_col, qty_col, data, 
                 tax_mode=tax_mode,
             )
             res = calc.calculate_item(item, params)
+            if total_rows >= 300 and n % 200 == 0:
+                try:
+                    await status_msg.edit_text(
+                        f"📊 Считаю… {n}/{total_rows} ({100 * n // total_rows}%)"
+                    )
+                except Exception:
+                    pass
             row_out = {
                 "Товар": item.product_name,
                 "Себестоимость, ₽": item.cost_price,
@@ -311,10 +322,14 @@ async def _calc_b2b(df, product_col, cost_col, sell_col, qty_col, data, fx_rate,
 
     total_rows = len(df)
     results = []
+    skipped = 0
     for n, (_, row) in enumerate(df.iterrows(), 1):
         try:
             raw_name = row.get(product_col)
             product_name = str(raw_name).strip() if pd.notna(raw_name) else ""
+            if not product_name or product_name.lower() in ("nan", "none", "-", "—"):
+                skipped += 1
+                continue
             if not product_name or product_name.lower() in ("название", "наименование", "товар", "none", "nan"):
                 continue
             cost_price = clean_numeric_value(row.get(cost_col))
