@@ -33,18 +33,37 @@ _COST_NEGATIVE = (
 def read_table(file_bytes: bytes, file_name: str, *, header: int | None = None, nrows: int | None = None) -> pd.DataFrame:
     name = (file_name or "").lower()
     buffer = io.BytesIO(file_bytes)
-    if name.endswith(".csv"):
-        return pd.read_csv(buffer, header=header, nrows=nrows)
-    if name.endswith(".xls") and not name.endswith(".xlsx"):
+    if name.endswith((".csv", ".dat")):
+        return pd.read_csv(buffer, header=header, nrows=nrows, sep=None, engine="python")
+    if name.endswith(".tsv"):
+        return pd.read_csv(buffer, header=header, nrows=nrows, sep="\t")
+    if name.endswith(".xls") and not name.endswith((".xlsx", ".xlsm", ".xlsb")):
         try:
             return pd.read_excel(buffer, header=header, nrows=nrows, engine="xlrd")
         except ImportError as e:
             raise RuntimeError("Install xlrd>=2.0.1 for .xls files") from e
+    if name.endswith(".xlsb"):
+        try:
+            return pd.read_excel(buffer, header=header, nrows=nrows, engine="pyxlsb")
+        except ImportError as e:
+            raise RuntimeError("Install pyxlsb for .xlsb files") from e
+    if name.endswith(".ods"):
+        try:
+            return pd.read_excel(buffer, header=header, nrows=nrows, engine="odf")
+        except ImportError as e:
+            raise RuntimeError("Install odfpy for .ods files") from e
+    if name.endswith((".xlsx", ".xlsm")) or name.endswith(".xls"):
+        try:
+            return pd.read_excel(buffer, header=header, nrows=nrows, engine="openpyxl")
+        except Exception:
+            buffer.seek(0)
+            return pd.read_excel(buffer, header=header, nrows=nrows)
+    # default: try excel then csv
     try:
         return pd.read_excel(buffer, header=header, nrows=nrows, engine="openpyxl")
     except Exception:
         buffer.seek(0)
-        return pd.read_excel(buffer, header=header, nrows=nrows)
+        return pd.read_csv(buffer, header=header, nrows=nrows, sep=None, engine="python")
 
 
 def _norm(s: object) -> str:
