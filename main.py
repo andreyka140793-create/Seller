@@ -276,9 +276,21 @@ async def get_upload_details_api(
     except (TypeError, ValueError):
         raise HTTPException(401, "Invalid user id")
 
-    owner_tid = upload.user.telegram_id if upload.user else None
-    if owner_tid != requester_id:
-        raise HTTPException(403, "Access denied")
+    owner = upload.user
+    if owner is None and upload.user_id:
+        owner = db.query(models.User).filter(models.User.id == upload.user_id).first()
+    try:
+        owner_tid = int(owner.telegram_id) if owner is not None else None
+    except (TypeError, ValueError):
+        owner_tid = None
+    if owner_tid is None or owner_tid != int(requester_id):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Access denied (db_user={owner_tid}, tg_user={requester_id}). "
+                "Сделайте новый расчёт после обновления бота."
+            ),
+        )
 
     return {
         "id": upload.id,
