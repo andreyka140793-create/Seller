@@ -2,39 +2,45 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Marginator — Отчёт</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #e2e8f0; padding: 16px; }
-  h1 { font-size: 20px; margin-bottom: 12px; color: #f8fafc; }
-  .card { background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--tg-theme-bg-color, #0f172a);
+    color: var(--tg-theme-text-color, #e2e8f0);
+    padding: 16px;
+    overscroll-behavior-y: none;
+  }
+  h1 { font-size: 20px; margin-bottom: 12px; }
+  .card { background: var(--tg-theme-secondary-bg-color, #1e293b); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
   .stat { background: #334155; border-radius: 8px; padding: 12px; text-align: center; }
-  .stat-value { font-size: 22px; font-weight: 700; color: #34d399; }
+  .stat-value { font-size: 20px; font-weight: 700; color: #34d399; }
   .stat-label { font-size: 12px; color: #94a3b8; margin-top: 4px; }
   table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
   th, td { padding: 10px 8px; text-align: left; border-bottom: 1px solid #334155; }
   th { background: #064e3b; color: #fff; position: sticky; top: 0; }
-  tr:hover { background: #1e293b; }
   .green { color: #34d399; }
   .red { color: #f87171; }
   .yellow { color: #fbbf24; }
   .loader { text-align: center; padding: 40px; color: #94a3b8; }
-  .error { background: #7f1d1d; color: #fecaca; padding: 16px; border-radius: 8px; }
+  .error { background: #7f1d1d; color: #fecaca; padding: 16px; border-radius: 8px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .hint { color: #94a3b8; font-size: 13px; margin-top: 8px; }
 </style>
 </head>
 <body>
 <h1>📊 Marginator — Отчёт</h1>
-<div id="app"><div class="loader">Загрузка...</div></div>
+<div id="app"><div class="loader">Загрузка…</div></div>
 <script>
-const params = new URLSearchParams(window.location.search);
-const uploadId = params.get("upload_id");
 const app = document.getElementById("app");
+const tg = window.Telegram && window.Telegram.WebApp;
 
 function fmt(n) {
-  if (n === null || n === undefined) return "—";
-  return Number(n).toLocaleString("ru-RU", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  if (n === null || n === undefined || Number.isNaN(Number(n))) return "—";
+  return Number(n).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function escapeHtml(s) {
@@ -43,19 +49,42 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
+function getUploadId() {
+  const q = new URLSearchParams(window.location.search);
+  if (q.get("upload_id")) return q.get("upload_id");
+  if (q.get("id")) return q.get("id");
+  try {
+    const h = new URLSearchParams((location.hash || "").replace(/^#/, ""));
+    if (h.get("upload_id")) return h.get("upload_id");
+  } catch (e) {}
+  try {
+    const sp = tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param;
+    if (!sp) return null;
+    if (/^\d+$/.test(String(sp))) return String(sp);
+    const m = String(sp).match(/(\d+)/);
+    if (m) return m[1];
+  } catch (e) {}
+  return null;
+}
+
 function render(data) {
   const items = data.items || [];
-  const totalRev = items.reduce((s, i) => s + (i.est_sell_price || 0), 0);
-  const totalProfit = items.reduce((s, i) => s + (i.net_profit || 0), 0);
-  const profitable = items.filter(i => i.is_profitable).length;
+  const totalRev = data.total_revenue != null
+    ? Number(data.total_revenue)
+    : items.reduce((s, i) => s + (Number(i.est_sell_price) || 0), 0);
+  const totalProfit = data.total_profit != null
+    ? Number(data.total_profit)
+    : items.reduce((s, i) => s + (Number(i.net_profit) || 0), 0);
+  const profitable = items.filter(i => i.is_profitable || Number(i.margin_pct) >= 5).length;
 
   app.innerHTML = `
     <div class="card">
+      <div class="hint" style="margin-bottom:10px">${escapeHtml(data.filename || "Расчёт #" + data.id)}</div>
       <div class="grid">
         <div class="stat"><div class="stat-value">${items.length}</div><div class="stat-label">Позиций</div></div>
         <div class="stat"><div class="stat-value">${fmt(totalRev)}</div><div class="stat-label">Выручка, ₽</div></div>
         <div class="stat"><div class="stat-value">${fmt(totalProfit)}</div><div class="stat-label">Прибыль, ₽</div></div>
-        <div class="stat"><div class="stat-value">${profitable}</div><div class="stat-label">К закупке</div></div>
+        <div class="stat"><div class="stat-value">${profitable}</div><div class="stat-label">В плюсе / к закупке</div></div>
       </div>
     </div>
     <div class="card" style="overflow-x:auto;">
@@ -72,43 +101,87 @@ function render(data) {
         </thead>
         <tbody>
           ${items.map(i => {
-            const cls = i.margin_pct >= 20 ? "green" : i.margin_pct >= 5 ? "yellow" : "red";
+            const m = Number(i.margin_pct) || 0;
+            const cls = m >= 20 ? "green" : m >= 5 ? "yellow" : "red";
             return `<tr>
               <td>${escapeHtml(i.title)}</td>
               <td>${fmt(i.buy_price)}</td>
               <td>${fmt(i.est_sell_price)}</td>
-              <td class="${cls}">${fmt(i.margin_pct)}%</td>
-              <td class="${cls}">${fmt(i.roi_pct)}%</td>
+              <td class="${cls}">${fmt(i.margin_pct)}</td>
+              <td class="${cls}">${fmt(i.roi_pct)}</td>
               <td class="${cls}">${fmt(i.net_profit)}</td>
             </tr>`;
           }).join("")}
         </tbody>
       </table>
+      ${items.length === 0 ? '<p class="hint">В этом расчёте нет сохранённых позиций.</p>' : ""}
     </div>
   `;
 }
 
 async function load() {
+  const uploadId = getUploadId();
   if (!uploadId) {
-    app.innerHTML = '<div class="error">Не указан upload_id</div>';
+    app.innerHTML =
+      '<div class="error">Не указан upload_id.\n\n' +
+      "Откройте Mini App кнопкой из сообщения бота после расчёта.\n" +
+      "В Amvera: WEB_APP_URL=https://ваш-хост/app</div>";
     return;
   }
+
   try {
-    const initData = window.Telegram?.WebApp?.initData || "";
-    const resp = await fetch(`/api/upload/${uploadId}`, {
-      headers: { "X-Telegram-Init-Data": initData }
+    if (tg) {
+      tg.ready();
+      try { tg.expand(); } catch (e) {}
+    }
+
+    const initData = (tg && tg.initData) ? tg.initData : "";
+    if (!initData) {
+      app.innerHTML =
+        '<div class="error">Нет данных авторизации Telegram (initData пустой).\n\n' +
+        "Откройте приложение только из Telegram-бота, " +
+        "кнопкой «Отчёт» / Mini App после /run.\n" +
+        "Из обычного браузера отчёт не откроется.</div>";
+      return;
+    }
+
+    const url = location.origin + "/api/upload/" + encodeURIComponent(uploadId);
+    const resp = await fetch(url, {
+      headers: {
+        "Accept": "application/json",
+        "X-Telegram-Init-Data": initData,
+      },
+      credentials: "same-origin",
     });
-    if (!resp.ok) throw new Error(resp.statusText);
-    render(await resp.json());
+
+    let bodyText = "";
+    let bodyJson = null;
+    try {
+      bodyText = await resp.text();
+      bodyJson = JSON.parse(bodyText);
+    } catch (e) {
+      bodyJson = null;
+    }
+
+    if (!resp.ok) {
+      const detail = (bodyJson && (bodyJson.detail || bodyJson.message)) || bodyText || resp.statusText || "";
+      throw new Error("HTTP " + resp.status + (detail ? ": " + detail : ""));
+    }
+
+    if (!bodyJson) {
+      throw new Error("Сервер вернул не JSON: " + (bodyText || "").slice(0, 200));
+    }
+
+    render(bodyJson);
   } catch (e) {
-    app.innerHTML = `<div class="error">Ошибка загрузки: ${escapeHtml(e.message)}</div>`;
+    const msg = (e && e.message) ? e.message : String(e);
+    app.innerHTML =
+      '<div class="error">Ошибка загрузки:\n' + escapeHtml(msg) +
+      "\n\nПроверьте: WEB_APP_URL с путём /app, новый расчёт после деплоя, " +
+      "открытие только кнопкой из бота.</div>";
   }
 }
 
-if (window.Telegram?.WebApp) {
-  window.Telegram.WebApp.ready();
-  window.Telegram.WebApp.expand();
-}
 load();
 </script>
 </body>
