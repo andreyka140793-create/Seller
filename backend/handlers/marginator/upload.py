@@ -55,7 +55,8 @@ async def handle_file_upload(message: Message, state: FSMContext, bot: Bot):
 
     from services.marginator.document_loader import is_supported
     if not is_supported(file_name):
-        await message.answer("Поддерживаемые форматы: xlsx, xls, csv, txt, docx, pdf, jpg, png, webp")
+        from services.marginator.document_loader import supported_formats_hint
+        await message.answer(f"Поддерживаемые форматы: {supported_formats_hint()}")
         return
     if document.file_size and document.file_size > MAX_FILE_SIZE_BYTES:
         await message.answer(f"Файл слишком большой. Максимум: {MAX_FILE_SIZE_BYTES // (1024*1024)} МБ")

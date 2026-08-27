@@ -22,7 +22,8 @@ async def compare_receive_a(message: Message, state: FSMContext, bot):
     doc = message.document
     name = (doc.file_name or "price_a.xlsx").lower()
     if not is_supported(name):
-        await message.answer("Нужен Excel/CSV/TXT/Word/PDF.")
+        from services.marginator.document_loader import supported_formats_hint
+        await message.answer(f"Нужен поддерживаемый прайс: {supported_formats_hint()}")
         return
     if doc.file_size and doc.file_size > 20*1024*1024:
         await message.answer("Файл слишком большой.")
@@ -42,7 +43,8 @@ async def compare_receive_b(message: Message, state: FSMContext, bot):
     doc = message.document
     name = (doc.file_name or "price_b.xlsx").lower()
     if not is_supported(name):
-        await message.answer("Нужен Excel/CSV/TXT/Word/PDF.")
+        from services.marginator.document_loader import supported_formats_hint
+        await message.answer(f"Нужен поддерживаемый прайс: {supported_formats_hint()}")
         return
     tg = await bot.get_file(doc.file_id)
     buf = await bot.download_file(tg.file_path)
