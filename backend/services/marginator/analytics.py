@@ -1,6 +1,13 @@
 """Analytics and summary generation."""
+import re
 import pandas as pd
 from pydantic import BaseModel
+
+
+def _escape_md(text: str) -> str:
+    """Экранирует спецсимволы легаси-Markdown Telegram (_ * ` [), чтобы
+    произвольные названия товаров из прайса не ломали parse_mode='Markdown'."""
+    return re.sub(r"([_*`\[])", r"\\\1", str(text))
 
 
 class BatchSummary(BaseModel):
@@ -74,11 +81,11 @@ class AnalyticsService:
         )
         text += "🏆 **Топ-3 по чистой прибыли:**\n"
         for i, item in enumerate(summary.top_profitable, 1):
-            text += f"{i}. {item['name']} — `{item['profit']:,.2f} ₽` (марж. `{item['margin']}%`)\n"
+            text += f"{i}. {_escape_md(item['name'])} — `{item['profit']:,.2f} ₽` (марж. `{item['margin']}%`)\n"
         if summary.unprofitable_count > 0:
             text += f"\n⚠️ **Зона риска (маржинальность < 5%):** `{summary.unprofitable_count}` шт.\n"
             for item in summary.risk_items:
-                text += f"• {item['name']} — `{item['margin']}%`\n"
+                text += f"• {_escape_md(item['name'])} — `{item['margin']}%`\n"
         text += (
             "\n_Маржа ₽ = выручка − переменные; "
             "маржинальность = маржа/выручка; "

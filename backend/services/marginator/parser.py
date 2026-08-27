@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import re
 import pandas as pd
 from services.marginator.schemas import TableMappingSchema
 from services.marginator.file_io import read_table, find_header_row, detect_columns_by_keywords, _norm
