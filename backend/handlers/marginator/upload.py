@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 from aiogram import F, Bot
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from handlers.marginator.router import marginator_router
