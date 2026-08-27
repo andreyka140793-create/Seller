@@ -42,6 +42,33 @@ class ExcelExporterService:
         output.seek(0)
         wb = openpyxl.load_workbook(output)
 
+        # Лист со справкой по терминам
+        if "Справка" in wb.sheetnames:
+            del wb["Справка"]
+        ws_help = wb.create_sheet("Справка", 0)
+        help_rows = [
+            ("Термин", "Что значит в Маржинаторе"),
+            ("Выручка, ₽", "Цена продажи (с учётом модели расчёта)"),
+            ("Себестоимость, ₽", "Закуп (после курса валюты, если задавали)"),
+            ("Переменные расходы, ₽", "Закуп + комиссия + логистика + упаковка и др."),
+            ("Маржа, ₽", "Выручка − переменные (до налога)"),
+            ("Маржинальность %", "Маржа ÷ выручка × 100%. Доля выручки после переменных"),
+            ("Наценка %", "Маржа ÷ переменные × 100%. Не путать с маржинальностью"),
+            ("Чистая прибыль, ₽", "Маржа − налог (оценка «в карман»)"),
+            ("Рентабельность чистая %", "Чистая прибыль ÷ выручка × 100%"),
+            ("ROI %", "Чистая прибыль ÷ себестоимость × 100%"),
+            ("Цвет строки", "🟢 маржинальность ≥ 20% · 🟡 5–20% · 🔴 < 5% (зона риска)"),
+            ("Лист «Риск»", "Позиции с маржинальностью < 5%"),
+            ("Лист «Топ»", "Лучшие позиции по маржинальности"),
+        ]
+        for r, (a, b) in enumerate(help_rows, 1):
+            ws_help.cell(row=r, column=1, value=a)
+            ws_help.cell(row=r, column=2, value=b)
+        ws_help.column_dimensions["A"].width = 28
+        ws_help.column_dimensions["B"].width = 72
+        ws_help.freeze_panes = "A2"
+
+
         header_fill = PatternFill(start_color="064E3B", end_color="064E3B", fill_type="solid")
         header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
         green_fill = PatternFill(start_color="D1FAE5", end_color="D1FAE5", fill_type="solid")
@@ -138,6 +165,8 @@ class ExcelExporterService:
                 ws.auto_filter.ref = ws.dimensions
 
         for name in wb.sheetnames:
+            if name == "Справка":
+                continue
             style_sheet(wb[name], risk_sheet=(name == "Риск"))
 
         final = io.BytesIO()
