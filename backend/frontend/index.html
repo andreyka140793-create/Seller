@@ -1,188 +1,369 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Marginator — Отчёт</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--tg-theme-bg-color, #0f172a);
-    color: var(--tg-theme-text-color, #e2e8f0);
-    padding: 16px;
-    overscroll-behavior-y: none;
-  }
-  h1 { font-size: 20px; margin-bottom: 12px; }
-  .card { background: var(--tg-theme-secondary-bg-color, #1e293b); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
-  .stat { background: #334155; border-radius: 8px; padding: 12px; text-align: center; }
-  .stat-value { font-size: 20px; font-weight: 700; color: #34d399; }
-  .stat-label { font-size: 12px; color: #94a3b8; margin-top: 4px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
-  th, td { padding: 10px 8px; text-align: left; border-bottom: 1px solid #334155; }
-  th { background: #064e3b; color: #fff; position: sticky; top: 0; }
-  .green { color: #34d399; }
-  .red { color: #f87171; }
-  .yellow { color: #fbbf24; }
-  .loader { text-align: center; padding: 40px; color: #94a3b8; }
-  .error { background: #7f1d1d; color: #fecaca; padding: 16px; border-radius: 8px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-  .hint { color: #94a3b8; font-size: 13px; margin-top: 8px; }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Маржинатор — отчёт</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: var(--tg-theme-bg-color, #0f1419);
+      --card: var(--tg-theme-secondary-bg-color, #1a2332);
+      --text: var(--tg-theme-text-color, #e7ecf3);
+      --hint: var(--tg-theme-hint-color, #8b9bb4);
+      --btn: var(--tg-theme-button-color, #2aabee);
+      --btn-text: var(--tg-theme-button-text-color, #fff);
+      --ok: #3dd68c;
+      --bad: #f07178;
+      --warn: #e6b450;
+      --border: rgba(255,255,255,0.06);
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 15px; line-height: 1.45;
+      overscroll-behavior-y: none;
+      min-height: 100%;
+    }
+    body { padding: 12px 14px 40px; }
+    #app { max-width: 560px; margin: 0 auto; }
+    .header { margin-bottom: 12px; }
+    .header h1 { margin: 0; font-size: 18px; font-weight: 700; }
+    .header p { margin: 4px 0 0; color: var(--hint); font-size: 13px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+    .card {
+      background: var(--card); border-radius: var(--radius);
+      padding: 14px; border: 1px solid var(--border);
+    }
+    .card .label { color: var(--hint); font-size: 12px; margin-bottom: 4px; }
+    .card .value { font-size: 17px; font-weight: 700; }
+    .card .value.ok { color: var(--ok); }
+    .card .value.bad { color: var(--bad); }
+    .filters {
+      display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;
+    }
+    .chip {
+      border: 1px solid var(--border); background: var(--card);
+      color: var(--text); border-radius: 999px; padding: 7px 12px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .chip.active {
+      background: rgba(42,171,238,0.2); border-color: var(--btn); color: var(--btn);
+    }
+    .search {
+      width: 100%; margin-bottom: 12px; padding: 10px 12px;
+      border-radius: 12px; border: 1px solid var(--border);
+      background: var(--card); color: var(--text); font-size: 14px;
+      outline: none;
+    }
+    .section-title {
+      font-size: 12px; font-weight: 600; color: var(--hint);
+      text-transform: uppercase; letter-spacing: 0.04em;
+      margin: 14px 0 8px;
+    }
+    .chart-wrap {
+      background: var(--card); border-radius: var(--radius);
+      padding: 12px; border: 1px solid var(--border);
+      height: 200px; margin-bottom: 8px;
+    }
+    .list {
+      background: var(--card); border-radius: var(--radius);
+      border: 1px solid var(--border); overflow: hidden;
+    }
+    .row {
+      display: grid; grid-template-columns: 1fr auto;
+      gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border);
+    }
+    .row:last-child { border-bottom: none; }
+    .row .name {
+      font-weight: 600; font-size: 14px;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .row .meta { color: var(--hint); font-size: 12px; margin-top: 2px; }
+    .row .metrics { text-align: right; white-space: nowrap; }
+    .row .profit { font-weight: 700; font-size: 14px; }
+    .row .margin { font-size: 12px; color: var(--hint); }
+    .badge {
+      display: inline-block; font-size: 11px; font-weight: 600;
+      padding: 2px 7px; border-radius: 6px; margin-top: 4px;
+    }
+    .badge.ok { background: rgba(61,214,140,0.15); color: var(--ok); }
+    .badge.bad { background: rgba(240,113,120,0.15); color: var(--bad); }
+    .badge.warn { background: rgba(230,180,80,0.15); color: var(--warn); }
+    .empty, .loader { text-align: center; padding: 40px 16px; color: var(--hint); }
+    .empty h2 { color: var(--text); margin: 0 0 8px; font-size: 17px; }
+    .empty p { margin: 0; font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    .btn {
+      display: inline-block; background: var(--btn); color: var(--btn-text);
+      border: none; border-radius: 12px; padding: 12px 22px;
+      font-size: 15px; font-weight: 600; margin-top: 12px; cursor: pointer;
+    }
+    .count { color: var(--hint); font-size: 12px; margin: 6px 0 0; }
+  </style>
 </head>
 <body>
-<h1>📊 Marginator — Отчёт</h1>
-<div id="app"><div class="loader">Загрузка…</div></div>
-<script>
-const app = document.getElementById("app");
-const tg = window.Telegram && window.Telegram.WebApp;
-
-function fmt(n) {
-  if (n === null || n === undefined || Number.isNaN(Number(n))) return "—";
-  return Number(n).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function escapeHtml(s) {
-  const div = document.createElement("div");
-  div.textContent = s === null || s === undefined ? "" : String(s);
-  return div.innerHTML;
-}
-
-function getUploadId() {
-  const q = new URLSearchParams(window.location.search);
-  if (q.get("upload_id")) return q.get("upload_id");
-  if (q.get("id")) return q.get("id");
-  try {
-    const h = new URLSearchParams((location.hash || "").replace(/^#/, ""));
-    if (h.get("upload_id")) return h.get("upload_id");
-  } catch (e) {}
-  try {
-    const sp = tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param;
-    if (!sp) return null;
-    if (/^\d+$/.test(String(sp))) return String(sp);
-    const m = String(sp).match(/(\d+)/);
-    if (m) return m[1];
-  } catch (e) {}
-  return null;
-}
-
-function render(data) {
-  const items = data.items || [];
-  const totalRev = data.total_revenue != null
-    ? Number(data.total_revenue)
-    : items.reduce((s, i) => s + (Number(i.est_sell_price) || 0), 0);
-  const totalProfit = data.total_profit != null
-    ? Number(data.total_profit)
-    : items.reduce((s, i) => s + (Number(i.net_profit) || 0), 0);
-  const profitable = items.filter(i => i.is_profitable || Number(i.margin_pct) >= 5).length;
-
-  app.innerHTML = `
-    <div class="card">
-      <div class="hint" style="margin-bottom:10px">${escapeHtml(data.filename || "Расчёт #" + data.id)}</div>
-      <div class="grid">
-        <div class="stat"><div class="stat-value">${items.length}</div><div class="stat-label">Позиций</div></div>
-        <div class="stat"><div class="stat-value">${fmt(totalRev)}</div><div class="stat-label">Выручка, ₽</div></div>
-        <div class="stat"><div class="stat-value">${fmt(totalProfit)}</div><div class="stat-label">Прибыль, ₽</div></div>
-        <div class="stat"><div class="stat-value">${profitable}</div><div class="stat-label">В плюсе / к закупке</div></div>
+  <div id="app">
+    <div class="loader" id="loader">Загрузка отчёта…</div>
+    <div id="empty" class="empty" style="display:none">
+      <div style="font-size:40px;margin-bottom:10px">📊</div>
+      <h2>Не удалось загрузить отчёт</h2>
+      <p id="empty-text">Откройте Mini App кнопкой из сообщения бота после расчёта.</p>
+      <button class="btn" type="button" id="btn-close">Закрыть</button>
+    </div>
+    <div id="content" style="display:none">
+      <div class="header">
+        <div>
+          <h1 id="title">Отчёт</h1>
+          <p id="subtitle">юнит-экономика</p>
+        </div>
       </div>
+      <div class="grid" id="kpi"></div>
+      <div class="filters">
+        <button type="button" class="chip active" data-filter="all">Все</button>
+        <button type="button" class="chip" data-filter="ok">В плюсе</button>
+        <button type="button" class="chip" data-filter="risk">Риск &lt;5%</button>
+        <button type="button" class="chip" data-filter="top">Топ-20</button>
+      </div>
+      <input class="search" id="search" type="search" placeholder="Поиск по названию…" />
+      <div class="section-title">Маржа по позициям</div>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+      <div class="section-title">Позиции <span class="count" id="list-count"></span></div>
+      <div class="list" id="list"></div>
     </div>
-    <div class="card" style="overflow-x:auto;">
-      <table>
-        <thead>
-          <tr>
-            <th>Товар</th>
-            <th>Себест.</th>
-            <th>Выручка</th>
-            <th>Маржа %</th>
-            <th>ROI %</th>
-            <th>Прибыль</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${items.map(i => {
-            const m = Number(i.margin_pct) || 0;
-            const cls = m >= 20 ? "green" : m >= 5 ? "yellow" : "red";
-            return `<tr>
-              <td>${escapeHtml(i.title)}</td>
-              <td>${fmt(i.buy_price)}</td>
-              <td>${fmt(i.est_sell_price)}</td>
-              <td class="${cls}">${fmt(i.margin_pct)}</td>
-              <td class="${cls}">${fmt(i.roi_pct)}</td>
-              <td class="${cls}">${fmt(i.net_profit)}</td>
-            </tr>`;
-          }).join("")}
-        </tbody>
-      </table>
-      ${items.length === 0 ? '<p class="hint">В этом расчёте нет сохранённых позиций.</p>' : ""}
-    </div>
-  `;
-}
-
-async function load() {
-  const uploadId = getUploadId();
-  if (!uploadId) {
-    app.innerHTML =
-      '<div class="error">Не указан upload_id.\n\n' +
-      "Откройте Mini App кнопкой из сообщения бота после расчёта.\n" +
-      "В Amvera: WEB_APP_URL=https://ваш-хост/app</div>";
-    return;
-  }
-
-  try {
+  </div>
+  <script>
+    const tg = window.Telegram && window.Telegram.WebApp;
     if (tg) {
-      tg.ready();
+      try { tg.ready(); } catch (e) {}
       try { tg.expand(); } catch (e) {}
+      try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e) {}
     }
 
-    const initData = (tg && tg.initData) ? tg.initData : "";
-    if (!initData) {
-      app.innerHTML =
-        '<div class="error">Нет данных авторизации Telegram (initData пустой).\n\n' +
-        "Откройте приложение только из Telegram-бота, " +
-        "кнопкой «Отчёт» / Mini App после /run.\n" +
-        "Из обычного браузера отчёт не откроется.</div>";
-      return;
+    let ALL_ITEMS = [];
+    let FILTER = "all";
+    let QUERY = "";
+    let chartObj = null;
+
+    function money(n) {
+      const x = Number(n) || 0;
+      return x.toLocaleString("ru-RU", { maximumFractionDigits: 0 }) + " ₽";
+    }
+    function pct(n) {
+      const x = Number(n);
+      if (isNaN(x)) return "—";
+      return x.toFixed(1) + "%";
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[c]));
     }
 
-    const url = location.origin + "/api/upload/" + encodeURIComponent(uploadId);
-    const resp = await fetch(url, {
-      headers: {
-        "Accept": "application/json",
-        "X-Telegram-Init-Data": initData,
-      },
-      credentials: "same-origin",
+    function getUploadId() {
+      const q = new URLSearchParams(location.search);
+      if (q.get("upload_id")) return q.get("upload_id");
+      if (q.get("id")) return q.get("id");
+      try {
+        const h = new URLSearchParams((location.hash || "").replace(/^#/, ""));
+        if (h.get("upload_id")) return h.get("upload_id");
+      } catch (e) {}
+      try {
+        const sp = tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param;
+        if (!sp) return null;
+        if (/^\d+$/.test(String(sp))) return String(sp);
+        const m = String(sp).match(/(\d+)/);
+        if (m) return m[1];
+      } catch (e) {}
+      return null;
+    }
+
+    function filteredItems() {
+      let items = ALL_ITEMS.slice();
+      if (FILTER === "ok") {
+        items = items.filter(i => Number(i.margin_pct) >= 5 || i.is_profitable);
+      }
+      if (FILTER === "risk") {
+        items = items.filter(i => Number(i.margin_pct) < 5);
+      }
+      if (FILTER === "top") {
+        items = items
+          .slice()
+          .sort((a, b) => Number(b.net_profit) - Number(a.net_profit))
+          .slice(0, 20);
+      }
+      if (QUERY) {
+        const q = QUERY.toLowerCase();
+        items = items.filter(i => String(i.title || "").toLowerCase().includes(q));
+      }
+      return items;
+    }
+
+    function badge(m) {
+      const v = Number(m);
+      if (v >= 20) return '<span class="badge ok">высокая</span>';
+      if (v >= 5) return '<span class="badge warn">средняя</span>';
+      return '<span class="badge bad">риск</span>';
+    }
+
+    function renderList() {
+      const items = filteredItems();
+      document.getElementById("list-count").textContent = "(" + items.length + ")";
+      const list = document.getElementById("list");
+      if (!items.length) {
+        list.innerHTML = '<div class="row"><div class="meta">Нет позиций по фильтру</div></div>';
+        return;
+      }
+      list.innerHTML = items.map(i => {
+        const profit = Number(i.net_profit) || 0;
+        const cls = profit >= 0 ? "ok" : "bad";
+        return (
+          '<div class="row">' +
+            '<div><div class="name">' + escapeHtml(i.title || "—") + '</div>' +
+            '<div class="meta">закуп ' + money(i.buy_price) +
+            ' · прод. ' + money(i.est_sell_price) + '</div>' +
+            badge(i.margin_pct) + '</div>' +
+            '<div class="metrics">' +
+              '<div class="profit" style="color:var(--' + cls + ')">' + money(profit) + '</div>' +
+              '<div class="margin">маржа ' + pct(i.margin_pct) +
+              ' · ROI ' + pct(i.roi_pct) + '</div>' +
+            '</div>' +
+          '</div>'
+        );
+      }).join("");
+    }
+
+    function renderChart(items) {
+      const top = items
+        .slice()
+        .sort((a, b) => Number(b.margin_pct) - Number(a.margin_pct))
+        .slice(0, 12);
+      const labels = top.map(i => (i.title || "").slice(0, 18));
+      const values = top.map(i => Number(i.margin_pct) || 0);
+      const colors = values.map(v =>
+        v >= 20 ? "#3dd68c" : v >= 5 ? "#e6b450" : "#f07178"
+      );
+      const ctx = document.getElementById("chart");
+      if (!ctx || typeof Chart === "undefined") return;
+      if (chartObj) chartObj.destroy();
+      chartObj = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [{ data: values, backgroundColor: colors, borderRadius: 6 }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: {
+              ticks: { color: "#8b9bb4", maxRotation: 45, font: { size: 10 } },
+              grid: { display: false }
+            },
+            y: {
+              ticks: { color: "#8b9bb4" },
+              grid: { color: "rgba(255,255,255,0.06)" }
+            }
+          }
+        }
+      });
+    }
+
+    function render(data) {
+      ALL_ITEMS = data.items || [];
+      const rev = Number(data.total_revenue) || 0;
+      const prof = Number(data.total_profit) || 0;
+      const avg = ALL_ITEMS.length
+        ? ALL_ITEMS.reduce((s, i) => s + (Number(i.margin_pct) || 0), 0) / ALL_ITEMS.length
+        : 0;
+      const risk = ALL_ITEMS.filter(i => Number(i.margin_pct) < 5).length;
+
+      document.getElementById("title").textContent = data.filename || ("Отчёт #" + (data.id || ""));
+      document.getElementById("subtitle").textContent = ALL_ITEMS.length + " позиций";
+      document.getElementById("kpi").innerHTML =
+        '<div class="card"><div class="label">Выручка</div><div class="value">' + money(rev) + '</div></div>' +
+        '<div class="card"><div class="label">Чистая прибыль</div><div class="value ' +
+        (prof >= 0 ? "ok" : "bad") + '">' + money(prof) + '</div></div>' +
+        '<div class="card"><div class="label">Ср. маржинальность</div><div class="value">' + pct(avg) + '</div></div>' +
+        '<div class="card"><div class="label">В зоне риска</div><div class="value ' +
+        (risk ? "bad" : "ok") + '">' + risk + '</div></div>';
+
+      renderChart(ALL_ITEMS);
+      renderList();
+    }
+
+    document.querySelectorAll(".chip").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".chip").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        FILTER = btn.getAttribute("data-filter");
+        renderList();
+      });
+    });
+    document.getElementById("search").addEventListener("input", (e) => {
+      QUERY = e.target.value || "";
+      renderList();
+    });
+    document.getElementById("btn-close").addEventListener("click", () => {
+      if (tg) tg.close();
     });
 
-    let bodyText = "";
-    let bodyJson = null;
-    try {
-      bodyText = await resp.text();
-      bodyJson = JSON.parse(bodyText);
-    } catch (e) {
-      bodyJson = null;
+    async function load() {
+      const uploadId = getUploadId();
+      const loader = document.getElementById("loader");
+      const empty = document.getElementById("empty");
+      const content = document.getElementById("content");
+
+      if (!uploadId) {
+        loader.style.display = "none";
+        empty.style.display = "block";
+        document.getElementById("empty-text").textContent =
+          "Нет ID расчёта.\nОткройте Mini App кнопкой из сообщения бота после расчёта.\nWEB_APP_URL должен заканчиваться на /app";
+        return;
+      }
+
+      try {
+        const headers = { "Accept": "application/json" };
+        if (tg && tg.initData) {
+          headers["X-Telegram-Init-Data"] = tg.initData;
+        } else {
+          throw new Error(
+            "Нет initData — откройте только из Telegram, кнопкой из бота (не из браузера)."
+          );
+        }
+
+        const url = location.origin + "/api/upload/" + encodeURIComponent(uploadId);
+        const res = await fetch(url, { headers, credentials: "same-origin" });
+
+        let detail = "";
+        try {
+          const body = await res.clone().json();
+          detail = body.detail || body.message || JSON.stringify(body);
+        } catch (e) {
+          try { detail = await res.text(); } catch (e2) { detail = ""; }
+        }
+
+        if (!res.ok) {
+          throw new Error("HTTP " + res.status + (detail ? ": " + detail : ""));
+        }
+
+        const data = await res.json();
+        loader.style.display = "none";
+        content.style.display = "block";
+        render(data);
+      } catch (e) {
+        loader.style.display = "none";
+        empty.style.display = "block";
+        document.getElementById("empty-text").textContent = String(e.message || e);
+      }
     }
 
-    if (!resp.ok) {
-      const detail = (bodyJson && (bodyJson.detail || bodyJson.message)) || bodyText || resp.statusText || "";
-      throw new Error("HTTP " + resp.status + (detail ? ": " + detail : ""));
-    }
-
-    if (!bodyJson) {
-      throw new Error("Сервер вернул не JSON: " + (bodyText || "").slice(0, 200));
-    }
-
-    render(bodyJson);
-  } catch (e) {
-    const msg = (e && e.message) ? e.message : String(e);
-    app.innerHTML =
-      '<div class="error">Ошибка загрузки:\n' + escapeHtml(msg) +
-      "\n\nПроверьте: WEB_APP_URL с путём /app, новый расчёт после деплоя, " +
-      "открытие только кнопкой из бота.</div>";
-  }
-}
-
-load();
-</script>
+    load();
+  </script>
 </body>
 </html>
