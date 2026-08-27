@@ -1,10 +1,23 @@
+# ВАЖНО: environment: docker здесь не работает — сборка Docker на Amvera
+# использует корень репозитория как build context, а backend/Dockerfile
+# написан в расчёте на context=backend/ (COPY requirements.txt . и т.д.).
+# Это ломает сборку ("файл не найден"). Проверено эмпирически при деплое.
+# Поэтому используем нативное python/pip-окружение Amvera + run.py
+# (run.py сам добавляет backend/ в sys.path и запускает uvicorn).
 meta:
-  environment: docker
+  environment: python
+  toolchain:
+    name: pip
+    version: 3.11
+
 build:
-  dockerfile: backend/Dockerfile
+  requirementsPath: backend/requirements.txt
+
 run:
   scriptName: run.py
   containerPort: 8000
-# На Amvera подключите persistent volume на путь /data
-# (SQLite: /data/app.db, временные прайс-листы: /data/uploads).
-# В панели Amvera: Storage → Mount path = /data
+  persistenceMount: /data
+# Обязательные переменные окружения (Amvera → Переменные и секреты):
+#   TELEGRAM_BOT_TOKEN, DATABASE_URL (например sqlite:////data/app.db),
+#   XAI_API_KEY (опционально — без него работает эвристика колонок),
+#   WEB_APP_URL (https://ваш-домен/app), ALLOWED_ORIGINS (опционально)
