@@ -1,4 +1,5 @@
 """Basic bot commands and text button handlers."""
+from pathlib import Path
 from aiogram import F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
@@ -13,9 +14,29 @@ from database import SessionLocal
 from services.marginator.db_service import MarginatorDBService
 
 
+def _cleanup_temp_file(path: str | None) -> None:
+    if not path:
+        return
+    try:
+        p = Path(path)
+        if p.is_file():
+            p.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+async def _clear_state_and_cleanup(state: FSMContext) -> None:
+    """Сбрасывает FSM-состояние и удаляет временный файл прайса, если он есть.
+    Без этого при каждом новом расчёте поверх предыдущего файл на диске
+    оставался бесхозным навсегда (накопление в /data/uploads)."""
+    data = await state.get_data()
+    _cleanup_temp_file(data.get("file_path"))
+    await state.clear()
+
+
 @marginator_router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
-    await state.clear()
+    await _clear_state_and_cleanup(state)
     await message.answer(
         "👋 Привет! Я Marginator — помогу рассчитать юнит-экономику товаров.\n\n"
         "Отправьте прайс-лист (Excel/CSV) или нажмите «🔄 Новый расчёт».",
@@ -62,7 +83,7 @@ async def cmd_cancel(message: Message, state: FSMContext):
 
 @marginator_router.message(F.text == "🔄 Новый расчёт")
 async def btn_new_calc(message: Message, state: FSMContext):
-    await state.clear()
+    await _clear_state_and_cleanup(state)
     await message.answer(
         "Выберите режим расчёта:",
         reply_markup=get_mode_keyboard(),
@@ -89,7 +110,7 @@ async def btn_cancel(message: Message, state: FSMContext):
 @marginator_router.callback_query(F.data == "new_calc")
 async def cb_new_calc(callback, state: FSMContext):
     await callback.answer()
-    await state.clear()
+    await _clear_state_and_cleanup(state)
     await callback.message.answer(
         "Выберите режим расчёта:",
         reply_markup=get_mode_keyboard(),

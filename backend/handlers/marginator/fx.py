@@ -36,8 +36,9 @@ async def fx_cbr_pick(callback: CallbackQuery, state: FSMContext):
         await prompt_target_margin(callback.message, state)
         return
     try:
+        import asyncio
         from services.marginator.fx_cbr import get_cbr_rate
-        rate = get_cbr_rate(code)
+        rate = await asyncio.to_thread(get_cbr_rate, code)
     except Exception:
         await callback.answer("ЦБ недоступен", show_alert=True)
         return
