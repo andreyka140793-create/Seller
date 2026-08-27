@@ -15,6 +15,7 @@ class PurchasingConfig:
     DEFAULT_MP_COMMISSION_PCT: float = 15.0
     DEFAULT_TAX_PCT: float = 6.0
     DEFAULT_MARKUP_PCT: float = 100.0
+    DEFAULT_RISK_MARGIN_PCT: float = 5.0  # зона риска: маржинальность ниже этого %
 
     # Tax modes
     TAX_MODE: Literal["usn_6", "usn_15", "osno_20"] = os.getenv("TAX_MODE", "usn_6")
