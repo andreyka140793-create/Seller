@@ -160,8 +160,27 @@ async def execute_calculation_core(message, state: FSMContext, data: dict, file_
     await message.answer(summary_text, reply_markup=get_webapp_keyboard(upload_id), parse_mode="Markdown")
     await message.answer_document(document=document, caption="📥 Полный Excel-файл со всеми позициями.", parse_mode="Markdown")
 
-    await state.update_data(last_upload_id=upload_id)
+    await state.update_data(last_upload_id=upload_id, upload_busy=False)
     await state.set_state(CalcState.confirm_params)
+
+    # Очередь следующих прайсов
+    data_after = await state.get_data()
+    if data_after.get("file_queue"):
+        n = len(data_after["file_queue"])
+        await message.answer(
+            f"📋 В очереди ещё {n} файл(ов).\n"
+            "Нажмите «➡️ Следующий файл» или «🔄 Новый расчёт».",
+            reply_markup=__import__(
+                "aiogram.types", fromlist=["InlineKeyboardMarkup", "InlineKeyboardButton"]
+            ).InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [__import__("aiogram.types", fromlist=["InlineKeyboardButton"]).InlineKeyboardButton(
+                        text="➡️ Следующий файл из очереди",
+                        callback_data="queue_next",
+                    )],
+                ]
+            ),
+        )
 
 
 async def _calc_marketplace(df, product_col, cost_col, sell_col, qty_col, data, fx_rate, status_msg):

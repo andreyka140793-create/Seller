@@ -48,6 +48,130 @@ async def _load_file_bytes_from_state(data: dict) -> bytes | None:
     return p.read_bytes()
 
 
+async def _save_document_to_disk(bot: Bot, document, file_name: str) -> tuple[str, bytes]:
+    """Скачать документ Telegram во временный файл. Возвращает (path, bytes)."""
+    file_io = await bot.download(document.file_id)
+    file_bytes = file_io.read()
+    suffix = Path(file_name).suffix or ".xlsx"
+    safe_name = sanitize_filename(document.file_name or "price")
+    fd, temp_path = tempfile.mkstemp(
+        suffix=suffix, prefix=f"price_{safe_name}_", dir=str(_UPLOAD_ROOT)
+    )
+    os.close(fd)
+    Path(temp_path).write_bytes(file_bytes)
+    return temp_path, file_bytes
+
+
+async def _enqueue_file(state: FSMContext, path: str, file_name: str) -> int:
+    data = await state.get_data()
+    queue = list(data.get("file_queue") or [])
+    queue.append({"path": path, "name": file_name})
+    await state.update_data(file_queue=queue)
+    return len(queue)
+
+
+async def process_price_file(
+    message: Message,
+    state: FSMContext,
+    *,
+    file_bytes: bytes,
+    file_name: str,
+    temp_path: str,
+    status_msg: Message | None = None,
+):
+    """Полный анализ одного прайса (уже сохранённого на диск)."""
+    if status_msg is None:
+        status_msg = await message.answer("🔄 Анализирую файл...")
+    parser = ExcelParserService(api_key=os.getenv("XAI_API_KEY"))
+    try:
+        mapping = await __import__("asyncio").to_thread(
+            parser.analyze_file_structure_sync, file_bytes, file_name
+        )
+        try:
+            df_check = read_table(file_bytes, file_name, header=mapping.header_row_index, nrows=15)
+            df_check.columns = [str(c).strip().replace("\n", " ") for c in df_check.columns]
+            detected = detect_columns_by_keywords(df_check)
+            cost_n = str(mapping.cost_price_col or "").strip().lower()
+            bad_cost = (
+                not mapping.cost_price_col
+                or cost_n in ("ед", "ед.", "nan", "none")
+                or cost_n.startswith("ед.")
+                or any(x in cost_n for x in ("артикул", "sku", "единиц"))
+            )
+            if bad_cost and detected.get("cost_price_col"):
+                mapping.cost_price_col = detected["cost_price_col"]
+            if (
+                not mapping.product_name_col
+                or str(mapping.product_name_col).lower() in ("nan", "none")
+            ) and detected.get("product_name_col"):
+                mapping.product_name_col = detected["product_name_col"]
+            if not mapping.quantity_col and detected.get("quantity_col"):
+                mapping.quantity_col = detected["quantity_col"]
+        except Exception:
+            pass
+
+        data = await state.get_data()
+        queue = data.get("file_queue") or []
+        queue_note = f"\n\n📋 В очереди ещё файлов: {len(queue)}" if queue else ""
+
+        await state.update_data(
+            file_path=temp_path,
+            file_name=file_name,
+            mapping=mapping.model_dump() if hasattr(mapping, "model_dump") else mapping,
+            upload_busy=True,
+        )
+        sell_info = (
+            f"\n• Колонка цены продажи: `{mapping.selling_price_col}`"
+            if mapping.selling_price_col
+            else ""
+        )
+        await status_msg.edit_text(
+            f"✅ **Структура определена!** (`{file_name}`)\n\n"
+            f"• Строка шапки: `{mapping.header_row_index + 1}`\n"
+            f"• Колонка товара: `{mapping.product_name_col}`\n"
+            f"• Колонка себестоимости: `{mapping.cost_price_col}`{sell_info}"
+            f"{queue_note}",
+            parse_mode="Markdown",
+        )
+        await prompt_mapping_confirm(message, state, mapping)
+    except Exception as e:
+        _cleanup_temp_file(temp_path)
+        await state.update_data(upload_busy=False)
+        try:
+            await status_msg.edit_text(f"❌ Ошибка при анализе файла: {type(e).__name__}")
+        except Exception:
+            await message.answer(f"❌ Ошибка при анализе файла: {type(e).__name__}")
+        import logging
+        logging.getLogger(__name__).exception("File analysis error")
+        # попробовать следующий из очереди
+        await start_next_queued_file(message, state)
+
+
+async def start_next_queued_file(message: Message, state: FSMContext) -> bool:
+    """Взять следующий файл из очереди и запустить анализ. True если был файл."""
+    data = await state.get_data()
+    queue = list(data.get("file_queue") or [])
+    if not queue:
+        await state.update_data(upload_busy=False)
+        return False
+    item = queue.pop(0)
+    await state.update_data(file_queue=queue, upload_busy=True)
+    path = item.get("path")
+    name = item.get("name") or "price.xlsx"
+    if not path or not Path(path).is_file():
+        await message.answer(f"⚠️ Файл из очереди недоступен: {name}")
+        return await start_next_queued_file(message, state)
+    await message.answer(
+        f"➡️ Следующий из очереди ({len(queue)} ещё ждут):\n`{name}`",
+        parse_mode="Markdown",
+    )
+    file_bytes = Path(path).read_bytes()
+    await process_price_file(
+        message, state, file_bytes=file_bytes, file_name=name, temp_path=path
+    )
+    return True
+
+
 @marginator_router.message(CalcState.upload_file, F.document)
 async def handle_file_upload(message: Message, state: FSMContext, bot: Bot):
     document = message.document
@@ -62,59 +186,84 @@ async def handle_file_upload(message: Message, state: FSMContext, bot: Bot):
         await message.answer(f"Файл слишком большой. Максимум: {MAX_FILE_SIZE_BYTES // (1024*1024)} МБ")
         return
 
-    status_msg = await message.answer("🔄 Анализирую файл...", parse_mode="Markdown")
-    file_io = await bot.download(document.file_id)
-    file_bytes = file_io.read()
-
     data = await state.get_data()
-    _cleanup_temp_file(data.get("file_path"))
-
-    suffix = Path(file_name).suffix or ".xlsx"
-    safe_name = sanitize_filename(document.file_name or "price")
-    fd, temp_path = tempfile.mkstemp(suffix=suffix, prefix=f"price_{safe_name}_", dir=str(_UPLOAD_ROOT))
-    os.close(fd)
-    Path(temp_path).write_bytes(file_bytes)
-
-    parser = ExcelParserService(api_key=os.getenv("XAI_API_KEY"))
-    try:
-        mapping = await __import__("asyncio").to_thread(parser.analyze_file_structure_sync, file_bytes, file_name)
-        # Heuristic correction
-        try:
-            df_check = read_table(file_bytes, file_name, header=mapping.header_row_index, nrows=15)
-            df_check.columns = [str(c).strip().replace("\\n", " ") for c in df_check.columns]
-            detected = detect_columns_by_keywords(df_check)
-            cost_n = str(mapping.cost_price_col or "").strip().lower()
-            bad_cost = (not mapping.cost_price_col or cost_n in ("ед", "ед.", "nan", "none") or cost_n.startswith("ед.") or any(x in cost_n for x in ("артикул", "sku", "единиц")))
-            if bad_cost and detected.get("cost_price_col"):
-                mapping.cost_price_col = detected["cost_price_col"]
-            if (not mapping.product_name_col or str(mapping.product_name_col).lower() in ("nan", "none")) and detected.get("product_name_col"):
-                mapping.product_name_col = detected["product_name_col"]
-            if not mapping.quantity_col and detected.get("quantity_col"):
-                mapping.quantity_col = detected["quantity_col"]
-            if not mapping.cost_price_col or str(mapping.cost_price_col).strip().lower() in ("ед", "ед."):
-                for c in df_check.columns:
-                    cl = str(c).lower()
-                    if any(x in cl for x in ("руб", "р.", "₽")) and "кол" not in cl:
-                        mapping.cost_price_col = str(c)
-                        break
-        except Exception:
-            pass
-
-        await state.update_data(file_path=temp_path, file_name=file_name, mapping=mapping.model_dump())
-        sell_info = f"\n• Колонка цены продажи: `{mapping.selling_price_col}`" if mapping.selling_price_col else "\n• Колонка цены продажи: не найдена (будет наценка 100%)"
-        await status_msg.edit_text(
-            f"✅ **Структура определена!**\n\n"
-            f"• Строка шапки: `{mapping.header_row_index + 1}`\n"
-            f"• Колонка товара: `{mapping.product_name_col}`\n"
-            f"• Колонка себестоимости: `{mapping.cost_price_col}`{sell_info}",
+    # Уже идёт разбор / настройка другого файла → в очередь, без параллельного анализа
+    if data.get("upload_busy") or data.get("file_path"):
+        temp_path, _ = await _save_document_to_disk(bot, document, file_name)
+        n = await _enqueue_file(state, temp_path, file_name)
+        await message.answer(
+            f"📥 `{document.file_name or file_name}` добавлен в очередь (№{n}).\n"
+            "Сейчас работаем с другим файлом — этот посчитаем следом, "
+            "когда закончите текущий расчёт (или нажмёте «Новый расчёт» / «Отмена»).",
             parse_mode="Markdown",
         )
-        await prompt_mapping_confirm(message, state, mapping)
-    except Exception as e:
-        _cleanup_temp_file(temp_path)
-        await status_msg.edit_text(f"❌ Ошибка при анализе файла")
-        import logging
-        logging.getLogger(__name__).exception("File analysis error")
+        return
+
+    await state.update_data(upload_busy=True)
+    status_msg = await message.answer("🔄 Анализирую файл...", parse_mode="Markdown")
+    temp_path, file_bytes = await _save_document_to_disk(bot, document, file_name)
+    await process_price_file(
+        message, state,
+        file_bytes=file_bytes,
+        file_name=file_name,
+        temp_path=temp_path,
+        status_msg=status_msg,
+    )
+
+
+
+@marginator_router.message(F.document)
+async def handle_file_any_state(message: Message, state: FSMContext, bot: Bot):
+    """Если прислали файл не в upload_file — либо очередь, либо старт нового."""
+    current = await state.get_state()
+    # уже обрабатывается upload_file handler
+    if current == CalcState.upload_file.state:
+        return
+    # compare mode has own handlers
+    if current in (
+        CalcState.compare_upload_a.state,
+        CalcState.compare_upload_b.state,
+    ):
+        return
+
+    document = message.document
+    file_name = (document.file_name or "price.xlsx").lower()
+    from services.marginator.document_loader import is_supported
+    if not is_supported(file_name):
+        return  # ignore non-price docs
+
+    data = await state.get_data()
+    if data.get("upload_busy") or data.get("file_path") or (
+        current and current != CalcState.select_mode.state
+    ):
+        if document.file_size and document.file_size > MAX_FILE_SIZE_BYTES:
+            await message.answer("Файл слишком большой.")
+            return
+        temp_path, _ = await _save_document_to_disk(bot, document, file_name)
+        n = await _enqueue_file(state, temp_path, file_name)
+        await message.answer(
+            f"📥 `{document.file_name or file_name}` в очереди (№{n}).\n"
+            "Завершите текущий расчёт — затем бот возьмёт этот файл. "
+            "Или «❌ Отмена» / «🔄 Новый расчёт».",
+            parse_mode="Markdown",
+        )
+        return
+
+    # свободны — начинаем как новый расчёт
+    if document.file_size and document.file_size > MAX_FILE_SIZE_BYTES:
+        await message.answer("Файл слишком большой.")
+        return
+    await state.set_state(CalcState.upload_file)
+    await state.update_data(upload_busy=True, calc_mode=data.get("calc_mode") or "marketplace")
+    status_msg = await message.answer("🔄 Анализирую файл...")
+    temp_path, file_bytes = await _save_document_to_disk(bot, document, file_name)
+    await process_price_file(
+        message, state,
+        file_bytes=file_bytes,
+        file_name=file_name,
+        temp_path=temp_path,
+        status_msg=status_msg,
+    )
 
 
 async def prompt_mapping_confirm(message: Message, state: FSMContext, mapping):
@@ -284,3 +433,24 @@ async def cancel_flow_price_col(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     _cleanup_temp_file(data.get("file_path"))
     await state.clear()
+
+
+@marginator_router.callback_query(F.data == "queue_next")
+async def cb_queue_next(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    data = await state.get_data()
+    # освободить текущий temp, если есть
+    if data.get("file_path"):
+        _cleanup_temp_file(data.get("file_path"))
+    await state.update_data(
+        file_path=None,
+        mapping=None,
+        upload_busy=False,
+    )
+    from handlers.marginator.upload import start_next_queued_file
+    ok = await start_next_queued_file(callback.message, state)
+    if not ok:
+        await callback.message.answer(
+            "Очередь пуста. Отправьте новый прайс или «🔄 Новый расчёт».",
+            reply_markup=get_main_reply_keyboard(),
+        )

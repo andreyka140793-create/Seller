@@ -26,11 +26,12 @@ def _cleanup_temp_file(path: str | None) -> None:
 
 
 async def _clear_state_and_cleanup(state: FSMContext) -> None:
-    """Сбрасывает FSM-состояние и удаляет временный файл прайса, если он есть.
-    Без этого при каждом новом расчёте поверх предыдущего файл на диске
-    оставался бесхозным навсегда (накопление в /data/uploads)."""
+    """Сброс FSM + удаление текущего файла и всей очереди с диска."""
     data = await state.get_data()
     _cleanup_temp_file(data.get("file_path"))
+    for item in data.get("file_queue") or []:
+        if isinstance(item, dict):
+            _cleanup_temp_file(item.get("path"))
     await state.clear()
 
 
