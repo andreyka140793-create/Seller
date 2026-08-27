@@ -62,6 +62,53 @@ async def _save_document_to_disk(bot: Bot, document, file_name: str) -> tuple[st
     return temp_path, file_bytes
 
 
+
+
+async def fail_current_keep_queue(state: FSMContext, *, cleanup_path: bool = True) -> int:
+    """Сбросить текущий файл, но сохранить очередь. Возвращает длину очереди."""
+    data = await state.get_data()
+    if cleanup_path:
+        _cleanup_temp_file(data.get("file_path"))
+    queue = list(data.get("file_queue") or [])
+    mode = data.get("calc_mode") or "marketplace"
+    # не трогаем queue; чистим только «текущий» контекст
+    await state.update_data(
+        file_path=None,
+        file_name=None,
+        mapping=None,
+        upload_busy=False,
+        calc_mode=mode,
+        file_queue=queue,
+        # параметры прошлого файла не нужны
+        commission_percent=None,
+        logistics_cost=None,
+        packaging_cost=None,
+        tax_rate_percent=None,
+        target_margin_percent=None,
+        fx_rate=None,
+        logistics_per_kg=None,
+    )
+    return len(queue)
+
+
+def queue_continue_keyboard(queue_len: int):
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    rows = []
+    if queue_len > 0:
+        rows.append([InlineKeyboardButton(
+            text=f"➡️ Следующий из очереди ({queue_len})",
+            callback_data="queue_next",
+        )])
+    rows.append([InlineKeyboardButton(
+        text="🗑 Очистить очередь и выйти",
+        callback_data="queue_clear",
+    )])
+    rows.append([InlineKeyboardButton(
+        text="🔄 Новый расчёт",
+        callback_data="new_calc",
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
 async def _enqueue_file(state: FSMContext, path: str, file_name: str) -> int:
     data = await state.get_data()
     queue = list(data.get("file_queue") or [])
@@ -136,15 +183,25 @@ async def process_price_file(
         await prompt_mapping_confirm(message, state, mapping)
     except Exception as e:
         _cleanup_temp_file(temp_path)
-        await state.update_data(upload_busy=False)
+        qlen = await fail_current_keep_queue(state, cleanup_path=False)
+        err_text = f"❌ Ошибка при анализе `{file_name}`: {type(e).__name__}: {e}"
         try:
-            await status_msg.edit_text(f"❌ Ошибка при анализе файла: {type(e).__name__}")
+            await status_msg.edit_text(err_text[:500], parse_mode="Markdown")
         except Exception:
-            await message.answer(f"❌ Ошибка при анализе файла: {type(e).__name__}")
+            await message.answer(err_text[:500])
         import logging
         logging.getLogger(__name__).exception("File analysis error")
-        # попробовать следующий из очереди
-        await start_next_queued_file(message, state)
+        if qlen > 0:
+            await message.answer(
+                f"Очередь не сброшена: ещё {qlen} файл(ов).\n"
+                "Можно взять следующий или очистить очередь.",
+                reply_markup=queue_continue_keyboard(qlen),
+            )
+        else:
+            await message.answer(
+                "Очередь пуста. Отправьте другой файл или «🔄 Новый расчёт».",
+                reply_markup=get_main_reply_keyboard(),
+            )
 
 
 async def start_next_queued_file(message: Message, state: FSMContext) -> bool:
@@ -155,14 +212,22 @@ async def start_next_queued_file(message: Message, state: FSMContext) -> bool:
         await state.update_data(upload_busy=False)
         return False
     item = queue.pop(0)
-    await state.update_data(file_queue=queue, upload_busy=True)
+    mode = data.get("calc_mode") or "marketplace"
+    await state.update_data(file_queue=queue, upload_busy=True, calc_mode=mode)
+    await state.set_state(CalcState.upload_file)
     path = item.get("path")
     name = item.get("name") or "price.xlsx"
     if not path or not Path(path).is_file():
         await message.answer(f"⚠️ Файл из очереди недоступен: {name}")
-        return await start_next_queued_file(message, state)
+        qlen = len(queue)
+        if qlen:
+            await message.answer(
+                "Попробуйте следующий.",
+                reply_markup=queue_continue_keyboard(qlen),
+            )
+        return False  # НЕ авто-каскад при битых путях — пользователь жмёт кнопку
     await message.answer(
-        f"➡️ Следующий из очереди ({len(queue)} ещё ждут):\n`{name}`",
+        f"➡️ Из очереди ({len(queue)} ещё ждут):\n`{name}`",
         parse_mode="Markdown",
     )
     file_bytes = Path(path).read_bytes()

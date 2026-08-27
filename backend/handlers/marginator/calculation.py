@@ -58,8 +58,18 @@ async def execute_calculation_trigger(update, state: FSMContext):
     data = await state.get_data()
     file_bytes = await _load_file_bytes_from_state(data)
     if file_bytes is None or "mapping" not in data:
-        await message.answer("❌ Данные файла потеряны. Нажмите «🔄 Новый расчёт».", reply_markup=get_main_reply_keyboard())
-        await state.clear()
+        from handlers.marginator.upload import fail_current_keep_queue, queue_continue_keyboard
+        qlen = await fail_current_keep_queue(state, cleanup_path=True)
+        if qlen:
+            await message.answer(
+                f"❌ Данные файла потеряны. Очередь сохранена ({qlen}).",
+                reply_markup=queue_continue_keyboard(qlen),
+            )
+        else:
+            await message.answer(
+                "❌ Данные файла потеряны. Нажмите «🔄 Новый расчёт».",
+                reply_markup=get_main_reply_keyboard(),
+            )
         return
 
     await execute_calculation_core(message, state, data, file_bytes, user.id)
@@ -116,8 +126,13 @@ async def execute_calculation_core(message, state: FSMContext, data: dict, file_
 
     if not product_col or not cost_col:
         await status_msg.edit_text("❌ Не найдены нужные колонки. Проверьте файл и попробуйте снова.")
-        _cleanup_temp_file(data.get("file_path"))
-        await state.clear()
+        from handlers.marginator.upload import fail_current_keep_queue, queue_continue_keyboard
+        qlen = await fail_current_keep_queue(state, cleanup_path=True)
+        if qlen:
+            await message.answer(
+                f"Очередь сохранена ({qlen}). Можно взять следующий файл.",
+                reply_markup=queue_continue_keyboard(qlen),
+            )
         return
 
     fx_rate = data.get("fx_rate", 1.0) or 1.0
@@ -130,8 +145,13 @@ async def execute_calculation_core(message, state: FSMContext, data: dict, file_
 
     if not results:
         await status_msg.edit_text("❌ Не удалось рассчитать ни одной позиции. Проверьте, что в колонке цены есть числа > 0.")
-        _cleanup_temp_file(data.get("file_path"))
-        await state.clear()
+        from handlers.marginator.upload import fail_current_keep_queue, queue_continue_keyboard
+        qlen = await fail_current_keep_queue(state, cleanup_path=True)
+        if qlen:
+            await message.answer(
+                f"Очередь сохранена ({qlen}). Можно взять следующий файл.",
+                reply_markup=queue_continue_keyboard(qlen),
+            )
         return
 
     df_results = pd.DataFrame(results)
