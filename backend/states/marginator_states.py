@@ -17,6 +17,7 @@ class CalcState(StatesGroup):
     input_manager_bonus = State()
     input_fx_rate = State()
     input_target_margin = State()
+    input_risk_threshold = State()
     confirm_params = State()
     save_preset_name = State()
     compare_upload_a = State()
