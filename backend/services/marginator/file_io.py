@@ -30,40 +30,191 @@ _COST_NEGATIVE = (
 )
 
 
-def read_table(file_bytes: bytes, file_name: str, *, header: int | None = None, nrows: int | None = None) -> pd.DataFrame:
-    name = (file_name or "").lower()
-    buffer = io.BytesIO(file_bytes)
-    if name.endswith((".csv", ".dat")):
-        return pd.read_csv(buffer, header=header, nrows=nrows, sep=None, engine="python")
-    if name.endswith(".tsv"):
-        return pd.read_csv(buffer, header=header, nrows=nrows, sep="\t")
-    if name.endswith(".xls") and not name.endswith((".xlsx", ".xlsm", ".xlsb")):
+def sniff_bytes(file_bytes: bytes) -> str:
+    """Определить тип по сигнатуре, а не только по расширению."""
+    if not file_bytes:
+        return "empty"
+    head = file_bytes[:256]
+    if head[:2] == b"PK":
+        return "zip"  # xlsx/xlsm/ods
+    if head[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+        return "ole"  # xls / doc
+    low = head.lstrip().lower()
+    if low.startswith(b"<?xml") or b"<yml" in low or b"<shop" in low:
+        return "xml"
+    if low.startswith(b"<!doctype html") or low.startswith(b"<html"):
+        return "html"
+    if low.startswith(b"{") or low.startswith(b"["):
+        return "json"
+    # CSV-ish
+    sample = file_bytes[:4000]
+    try:
+        text = sample.decode("utf-8")
+    except Exception:
         try:
-            return pd.read_excel(buffer, header=header, nrows=nrows, engine="xlrd")
-        except ImportError as e:
-            raise RuntimeError("Install xlrd>=2.0.1 for .xls files") from e
+            text = sample.decode("cp1251")
+        except Exception:
+            text = ""
+    if text and (";" in text or "," in text or "\t" in text):
+        return "csv"
+    return "unknown"
+
+
+def _score_dataframe(df: pd.DataFrame) -> float:
+    if df is None or df.empty:
+        return -1.0
+    rows, cols = df.shape
+    if cols < 2 or rows < 1:
+        return -1.0
+    # сколько ячеек похожи на числа
+    sample = df.iloc[: min(40, rows), : min(12, cols)]
+    numeric = 0
+    total = 0
+    for col in sample.columns:
+        for val in sample[col].tolist():
+            total += 1
+            s = str(val).strip().replace(" ", "").replace("\xa0", "").replace(",", ".")
+            if not s or s.lower() in ("nan", "none"):
+                continue
+            try:
+                float(re.sub(r"[^\d.\-]", "", s) or "x")
+                numeric += 1
+            except Exception:
+                pass
+    return rows * 0.01 + cols * 0.5 + (numeric / max(total, 1)) * 10.0
+
+
+def _read_excel_multisheet(file_bytes: bytes, *, header: int | None, nrows: int | None, engines: list[str]) -> pd.DataFrame:
+    last_err: Exception | None = None
+    for engine in engines:
+        try:
+            buf = io.BytesIO(file_bytes)
+            xl = pd.ExcelFile(buf, engine=engine)
+            best_df = None
+            best_score = -1.0
+            for sheet in xl.sheet_names[:12]:
+                try:
+                    df = pd.read_excel(xl, sheet_name=sheet, header=header, nrows=nrows, dtype=str)
+                    sc = _score_dataframe(df)
+                    if sc > best_score:
+                        best_score = sc
+                        best_df = df
+                except Exception as e:
+                    last_err = e
+                    continue
+            if best_df is not None and best_score >= 0:
+                return best_df
+        except Exception as e:
+            last_err = e
+            continue
+    if last_err:
+        raise last_err
+    raise RuntimeError("Не удалось прочитать ни один лист Excel")
+
+
+def read_table(file_bytes: bytes, file_name: str, *, header: int | None = None, nrows: int | None = None) -> pd.DataFrame:
+    """Устойчивое чтение таблиц: сигнатура файла, несколько движков, все листы."""
+    name = (file_name or "").lower()
+    kind = sniff_bytes(file_bytes)
+
+    # HTML под видом xls/xlsx
+    if kind == "html" or name.endswith((".html", ".htm")):
+        try:
+            tables = pd.read_html(io.BytesIO(file_bytes))
+            if tables:
+                tables = sorted(tables, key=_score_dataframe, reverse=True)
+                return tables[0].astype(str)
+        except Exception as e:
+            raise RuntimeError(f"HTML-таблица не прочитана: {e}") from e
+
+    # XML/YML
+    if kind == "xml" or name.endswith((".xml", ".yml", ".yaml")):
+        from services.marginator.document_loader import _read_xml_price
+        return _read_xml_price(file_bytes)
+
+    # JSON
+    if kind == "json" or name.endswith(".json"):
+        from services.marginator.document_loader import _read_json_price
+        return _read_json_price(file_bytes)
+
+    # CSV / text
+    if name.endswith((".csv", ".dat", ".tsv", ".txt")) or kind == "csv":
+        sep = "\t" if name.endswith(".tsv") else None
+        last = None
+        for enc in ("utf-8-sig", "utf-8", "cp1251", "latin-1"):
+            for separator in ((sep,) if sep else (";", ",", "\t", "|", None)):
+                try:
+                    kw = dict(header=header, nrows=nrows, dtype=str, engine="python", encoding=enc)
+                    if separator is None:
+                        kw["sep"] = None
+                    else:
+                        kw["sep"] = separator
+                    df = pd.read_csv(io.BytesIO(file_bytes), **kw)
+                    if df.shape[1] >= 1:
+                        return df
+                except Exception as e:
+                    last = e
+                    continue
+        if last:
+            raise RuntimeError(f"CSV/текст не прочитан: {last}") from last
+        raise RuntimeError("CSV/текст пуст или не распознан")
+
+    # Excel binary OLE (.xls)
+    if name.endswith(".xls") and not name.endswith((".xlsx", ".xlsm", ".xlsb")) or kind == "ole":
+        try:
+            return _read_excel_multisheet(file_bytes, header=header, nrows=nrows, engines=["xlrd"])
+        except Exception as e1:
+            # иногда .xls на самом деле HTML
+            try:
+                tables = pd.read_html(io.BytesIO(file_bytes))
+                if tables:
+                    return sorted(tables, key=_score_dataframe, reverse=True)[0].astype(str)
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"Не удалось прочитать .xls: {e1}. "
+                "Сохраните как .xlsx в Excel и пришлите снова."
+            ) from e1
+
+    # xlsb
     if name.endswith(".xlsb"):
         try:
-            return pd.read_excel(buffer, header=header, nrows=nrows, engine="pyxlsb")
-        except ImportError as e:
-            raise RuntimeError("Install pyxlsb for .xlsb files") from e
+            return _read_excel_multisheet(file_bytes, header=header, nrows=nrows, engines=["pyxlsb"])
+        except Exception as e:
+            raise RuntimeError(f"Не удалось прочитать .xlsb: {e}. Сохраните как .xlsx.") from e
+
+    # ods
     if name.endswith(".ods"):
         try:
-            return pd.read_excel(buffer, header=header, nrows=nrows, engine="odf")
-        except ImportError as e:
-            raise RuntimeError("Install odfpy for .ods files") from e
-    if name.endswith((".xlsx", ".xlsm")) or name.endswith(".xls"):
+            return _read_excel_multisheet(file_bytes, header=header, nrows=nrows, engines=["odf"])
+        except Exception as e:
+            raise RuntimeError(f"Не удалось прочитать .ods: {e}") from e
+
+    # xlsx / xlsm / zip-based
+    if name.endswith((".xlsx", ".xlsm")) or kind == "zip":
         try:
-            return pd.read_excel(buffer, header=header, nrows=nrows, engine="openpyxl")
-        except Exception:
-            buffer.seek(0)
-            return pd.read_excel(buffer, header=header, nrows=nrows)
-    # default: try excel then csv
+            return _read_excel_multisheet(
+                file_bytes, header=header, nrows=nrows, engines=["openpyxl"]
+            )
+        except Exception as e:
+            # password / corrupt
+            msg = str(e).lower()
+            if "password" in msg or "encrypted" in msg:
+                raise RuntimeError("Файл защищён паролем. Снимите защиту и пришлите снова.") from e
+            raise RuntimeError(f"Не удалось прочитать Excel: {e}") from e
+
+    # fallback chain
+    errors = []
+    for eng in ("openpyxl", "xlrd"):
+        try:
+            return _read_excel_multisheet(file_bytes, header=header, nrows=nrows, engines=[eng])
+        except Exception as e:
+            errors.append(f"{eng}: {e}")
     try:
-        return pd.read_excel(buffer, header=header, nrows=nrows, engine="openpyxl")
-    except Exception:
-        buffer.seek(0)
-        return pd.read_csv(buffer, header=header, nrows=nrows, sep=None, engine="python")
+        return pd.read_csv(io.BytesIO(file_bytes), header=header, nrows=nrows, sep=None, engine="python")
+    except Exception as e:
+        errors.append(f"csv: {e}")
+    raise RuntimeError("Файл не прочитан. " + " | ".join(errors[:3]))
 
 
 def _norm(s: object) -> str:

@@ -112,7 +112,10 @@ def load_document(file_bytes: bytes, file_name: str) -> LoadedDocument:
         return LoadedDocument(kind="text", file_name=name, text=text)
 
     if ext == ".docx":
+        df_tab = _read_docx_table(file_bytes)
         text = _read_docx(file_bytes)
+        if df_tab is not None and df_tab.shape[1] >= 2 and len(df_tab) >= 1:
+            return LoadedDocument(kind="table", file_name=name, dataframe=df_tab, text=text)
         df = _try_text_as_table(text)
         if df is not None and len(df.columns) >= 2:
             return LoadedDocument(kind="table", file_name=name, dataframe=df, text=text)
@@ -186,13 +189,10 @@ def _decode_text(file_bytes: bytes) -> str:
 def _read_excel_safe(file_bytes: bytes, file_name: str) -> pd.DataFrame:
     try:
         return read_table(file_bytes, file_name, header=None)
+    except RuntimeError:
+        raise
     except Exception as e:
-        low = str(e).lower()
-        if "xlrd" in low or file_name.lower().endswith(".xls"):
-            raise RuntimeError("Для .xls нужен xlrd>=2.0.1 или сохраните как .xlsx") from e
-        if "xlsb" in low:
-            raise RuntimeError("Для .xlsb установите pyxlsb: pip install pyxlsb") from e
-        raise RuntimeError(f"Ошибка чтения Excel: {e}") from e
+        raise RuntimeError(f"Ошибка чтения Excel «{file_name}»: {e}") from e
 
 
 def _read_ods(file_bytes: bytes) -> pd.DataFrame:
