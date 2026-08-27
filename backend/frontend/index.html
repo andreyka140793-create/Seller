@@ -37,6 +37,12 @@ function fmt(n) {
   return Number(n).toLocaleString("ru-RU", {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
 
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s === null || s === undefined ? "" : String(s);
+  return div.innerHTML;
+}
+
 function render(data) {
   const items = data.items || [];
   const totalRev = items.reduce((s, i) => s + (i.est_sell_price || 0), 0);
@@ -68,7 +74,7 @@ function render(data) {
           ${items.map(i => {
             const cls = i.margin_pct >= 20 ? "green" : i.margin_pct >= 5 ? "yellow" : "red";
             return `<tr>
-              <td>${i.title}</td>
+              <td>${escapeHtml(i.title)}</td>
               <td>${fmt(i.buy_price)}</td>
               <td>${fmt(i.est_sell_price)}</td>
               <td class="${cls}">${fmt(i.margin_pct)}%</td>
@@ -95,7 +101,7 @@ async function load() {
     if (!resp.ok) throw new Error(resp.statusText);
     render(await resp.json());
   } catch (e) {
-    app.innerHTML = `<div class="error">Ошибка загрузки: ${e.message}</div>`;
+    app.innerHTML = `<div class="error">Ошибка загрузки: ${escapeHtml(e.message)}</div>`;
   }
 }
 
