@@ -55,11 +55,12 @@ class BatchSummary(BaseModel):
     unprofitable_count: int
     risk_items: list[dict]
     file_label: str = ""
+    risk_threshold: float = 5.0
 
 
 class AnalyticsService:
     @staticmethod
-    def generate_summary(df_results: pd.DataFrame, file_label: str = "") -> BatchSummary:
+    def generate_summary(df_results: pd.DataFrame, file_label: str = "", risk_threshold: float = 5.0) -> BatchSummary:
         total_items = len(df_results)
         total_revenue = float(df_results["Выручка, ₽"].sum()) if total_items else 0.0
         total_profit = float(df_results["Чистая прибыль, ₽"].sum()) if total_items else 0.0
@@ -94,8 +95,8 @@ class AnalyticsService:
         ]
 
         if margin_col in df_results.columns:
-            risk_df = df_results[df_results[margin_col] < 5.0]
-            profitable_count = int((df_results[margin_col] >= 5.0).sum())
+            risk_df = df_results[df_results[margin_col] < risk_threshold]
+            profitable_count = int((df_results[margin_col] >= risk_threshold).sum())
         else:
             risk_df = df_results[df_results["Чистая прибыль, ₽"] < 0]
             profitable_count = int((df_results["Чистая прибыль, ₽"] >= 0).sum())
@@ -119,6 +120,7 @@ class AnalyticsService:
             unprofitable_count=unprofitable_count,
             risk_items=risk_items,
             file_label=file_label or "",
+            risk_threshold=float(risk_threshold),
         )
 
     @staticmethod
@@ -128,8 +130,8 @@ class AnalyticsService:
             f"📊 **Итог расчёта**{head}\n"
             f"───────────────────\n"
             f"• **Позиций:** `{summary.total_items}`\n"
-            f"• **В плюсе** (маржинальность ≥ 5%): `{summary.profitable_count}`\n"
-            f"• **Зона риска** (< 5%): `{summary.unprofitable_count}`\n"
+            f"• **В плюсе** (маржа ≥ порога): `{summary.profitable_count}`\n"
+            f"• **Зона риска** (ниже порога): `{summary.unprofitable_count}`\n"
             f"• **Выручка** (сумма цен продаж): `{summary.total_revenue:,.0f} ₽`\n"
             f"• **Маржа до налога** (выручка − переменные): `{summary.total_margin:,.0f} ₽`\n"
             f"• **Чистая прибыль** (после налога): `{summary.total_profit:,.0f} ₽`\n"
@@ -152,7 +154,7 @@ class AnalyticsService:
             "\n📌 **Коротко о терминах**\n"
             "• *Маржа ₽* ≠ *маржинальность %* ≠ *наценка %*\n"
             "• Маржинальность — доля от **выручки**; наценка — надбавка к **затратам**\n"
-            "• В Excel: лист «Справка» + цвета 🟢≥20% · 🟡5–20% · 🔴&lt;5%\n"
+            "• В Excel: лист «Справка»; красный = ниже порога риска\n"
             "• Подробнее: команда /terms"
         )
         return text

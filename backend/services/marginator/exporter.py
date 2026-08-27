@@ -9,7 +9,7 @@ from openpyxl.utils import get_column_letter
 
 class ExcelExporterService:
     @staticmethod
-    def export_results_to_excel(df_results: pd.DataFrame) -> bytes:
+    def export_results_to_excel(df_results: pd.DataFrame, risk_threshold: float = 5.0) -> bytes:
         output = io.BytesIO()
         margin_col = None
         for c in df_results.columns:
@@ -26,7 +26,7 @@ class ExcelExporterService:
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             df_results.to_excel(writer, index=False, sheet_name="Все")
             if margin_col is not None:
-                risk = df_results[df_results[margin_col] < 5.0]
+                risk = df_results[df_results[margin_col] < risk_threshold]
                 top = df_results.sort_values(by=margin_col, ascending=False).head(50)
             else:
                 profit_col = "Чистая прибыль, ₽" if "Чистая прибыль, ₽" in df_results.columns else None
@@ -57,8 +57,8 @@ class ExcelExporterService:
             ("Чистая прибыль, ₽", "Маржа − налог (оценка «в карман»)"),
             ("Рентабельность чистая %", "Чистая прибыль ÷ выручка × 100%"),
             ("ROI %", "Чистая прибыль ÷ себестоимость × 100%"),
-            ("Цвет строки", "🟢 маржинальность ≥ 20% · 🟡 5–20% · 🔴 < 5% (зона риска)"),
-            ("Лист «Риск»", "Позиции с маржинальностью < 5%"),
+            ("Цвет строки", f"🟢 ≥ 20% · 🟡 {risk_threshold:g}–20% · 🔴 < {risk_threshold:g}%"),
+            ("Лист «Риск»", f"Позиции с маржинальностью < {risk_threshold:g}%"),
             ("Лист «Топ»", "Лучшие позиции по маржинальности"),
         ]
         for r, (a, b) in enumerate(help_rows, 1):
@@ -131,7 +131,7 @@ class ExcelExporterService:
                     row_font = None
                 elif margin_val >= 20.0:
                     row_fill, row_font = green_fill, green_font
-                elif margin_val >= 5.0:
+                elif margin_val >= risk_threshold:
                     row_fill, row_font = yellow_fill, yellow_font
                 else:
                     row_fill, row_font = red_fill, red_font

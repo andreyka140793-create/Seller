@@ -69,7 +69,31 @@ def extension_of(file_name: str) -> str:
     return "." + name.rsplit(".", 1)[-1]
 
 
+def friendly_load_error(exc: BaseException, file_name: str = "") -> str:
+    msg = str(exc) or type(exc).__name__
+    low = msg.lower()
+    name = file_name or "файл"
+    if "password" in low or "encrypted" in low:
+        return f"«{name}» защищён паролем. Снимите защиту и пришлите снова."
+    if "xlrd" in low:
+        return f"Старый .xls «{name}» не прочитался. Сохраните как .xlsx."
+    if "xlsb" in low or "pyxlsb" in low:
+        return f".xlsb «{name}»: сохраните как .xlsx."
+    if "odf" in low or "ods" in low:
+        return f".ods «{name}»: сохраните как .xlsx."
+    if "dbf" in low:
+        return f".dbf «{name}»: экспортируйте в CSV или Excel."
+    if "empty" in low or "no columns" in low:
+        return f"«{name}» пустой или без таблицы."
+    if "zip" in low and "поддержива" in low:
+        return f"В ZIP нет прайса (xlsx/csv/xml…)."
+    if "pdf" in low:
+        return f"PDF без текста: нужен Excel или скриншот."
+    return f"Не удалось прочитать «{name}»: {msg[:220]}"
+
+
 def is_supported(file_name: str) -> bool:
+
     return extension_of(file_name) in ALL_SUPPORTED
 
 
