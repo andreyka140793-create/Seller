@@ -128,6 +128,7 @@
         <button type="button" class="chip" data-filter="ok">В плюсе</button>
         <button type="button" class="chip" data-filter="risk">Риск &lt;5%</button>
         <button type="button" class="chip" data-filter="top">Топ-20</button>
+        <button type="button" class="chip" data-filter="roi">ROI топ</button>
       </div>
       <input class="search" id="search" type="search" placeholder="Поиск по названию…" />
       <div class="section-title">Маржа по позициям</div>
@@ -189,6 +190,9 @@
       }
       if (FILTER === "risk") {
         items = items.filter(i => Number(i.margin_pct) < 5);
+      }
+      if (FILTER === "roi") {
+        items = items.slice().sort((a, b) => Number(b.roi_pct) - Number(a.roi_pct)).slice(0, 20);
       }
       if (FILTER === "top") {
         items = items
