@@ -13,21 +13,21 @@ from config import PurchasingConfig
 def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🔄 Новый расчёт"), KeyboardButton(text="📂 История")],
+            [KeyboardButton(text="🔄 Новый расчёт"), KeyboardButton(text="🧪 Демо-прайс"), KeyboardButton(text="📂 История")],
             [KeyboardButton(text="📖 Помощь"), KeyboardButton(text="📖 Термины"), KeyboardButton(text="❌ Отмена")],
         ],
         resize_keyboard=True,
         is_persistent=True,
-        input_field_placeholder="Или отправьте файл прайса…",
+        input_field_placeholder="Файл прайса или кнопка ниже",
     )
 
 
 def get_mode_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🛒 Маркетплейс (WB / Ozon)", callback_data="mode_marketplace")],
-            [InlineKeyboardButton(text="🏢 B2B (опт / НДС)", callback_data="mode_b2b")],
-            [InlineKeyboardButton(text="⚖️ Сравнить 2 прайса", callback_data="mode_compare")],
+            [InlineKeyboardButton(text="Маркетплейс", callback_data="mode_marketplace")],
+            [InlineKeyboardButton(text="B2B", callback_data="mode_b2b")],
+            [InlineKeyboardButton(text="Сравнить 2 прайса", callback_data="mode_compare")],
         ]
     )
 
@@ -197,7 +197,9 @@ def get_after_report_keyboard(webapp_url: str | None = None) -> InlineKeyboardMa
             InlineKeyboardButton(text="Налог −1%", callback_data="whatif_tax_-1"),
             InlineKeyboardButton(text="Налог +1%", callback_data="whatif_tax_+1"),
         ],
-        [InlineKeyboardButton(text="🛒 Только к закупке (ROI≥30%)", callback_data="export_buy_list")],
+        [InlineKeyboardButton(text="🛒 К закупке ROI≥20%", callback_data="buy_roi_20"),
+         InlineKeyboardButton(text="ROI≥30%", callback_data="buy_roi_30"),
+         InlineKeyboardButton(text="ROI≥50%", callback_data="buy_roi_50")],
         [InlineKeyboardButton(text="🔄 Новый расчёт", callback_data="new_calc")],
     ]
     if webapp_url:
