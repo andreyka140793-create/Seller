@@ -134,6 +134,38 @@ async def cb_cancel_flow(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("Отменено.", reply_markup=get_main_reply_keyboard())
 
 
+
+
+@marginator_router.message(F.text.in_({"🧪 Демо-прайс", "Демо-прайс", "/demo"}))
+@marginator_router.message(Command("demo"))
+async def cmd_demo(message: Message, state: FSMContext):
+    """Короткий онбординг: демо-файл + сразу режим маркетплейса."""
+    await _clear_state_and_cleanup(state)
+    import io
+    import pandas as pd
+    from aiogram.types import BufferedInputFile
+    rows = [
+        {"Наименование": "Дрель Bosch GSB 13 RE", "Артикул": "ART-1001", "Цена": 3490, "Остаток": 12},
+        {"Наименование": "Шуруповёрт Makita DF333D", "Артикул": "ART-1002", "Цена": 5290, "Остаток": 8},
+        {"Наименование": "Перфоратор DeWalt D25133K", "Артикул": "ART-1003", "Цена": 8990, "Остаток": 5},
+        {"Наименование": "Уровень лазерный Huepar", "Артикул": "ART-1004", "Цена": 4150, "Остаток": 20},
+        {"Наименование": "Набор бит 50 шт", "Артикул": "ART-1005", "Цена": 890, "Остаток": 100},
+        {"Наименование": "Товар без цены (будет пропущен)", "Артикул": "ART-X", "Цена": 0, "Остаток": 1},
+    ]
+    buf = io.BytesIO()
+    pd.DataFrame(rows).to_excel(buf, index=False, engine="openpyxl")
+    buf.seek(0)
+    doc = BufferedInputFile(buf.read(), filename="demo_price.xlsx")
+    await message.answer(
+        "Демо-прайс: 5 товаров + 1 пустая цена (её бот пропустит).\n"
+        "Дальше: режим → параметры → Рассчитать.\n"
+        "Или просто перешлите этот файл боту после выбора режима."
+    )
+    await message.answer_document(doc, caption="demo_price.xlsx")
+    await message.answer("Выберите режим:", reply_markup=get_mode_keyboard())
+    await state.set_state(CalcState.select_mode)
+
+
 @marginator_router.callback_query(CalcState.select_mode, F.data == "mode_marketplace")
 async def select_mode_marketplace(callback: CallbackQuery, state: FSMContext):
     await callback.answer()

@@ -24,12 +24,23 @@ async def show_calculation_history(message, telegram_id: int | None = None):
             await message.answer("📂 У вас пока нет сохранённых расчётов.")
             return
         await message.answer(
-            f"📜 История расчётов ({len(uploads)}):\nНажмите на файл — пришлю Excel повторно.",
+            f"История расчётов ({len(uploads)}):\nНажмите файл — скачать Excel.",
             reply_markup=get_history_keyboard(uploads),
         )
+        if len(uploads) >= 2:
+            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+            await message.answer(
+                "Сравнить два последних расчёта?",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text="Сравнить 2 последних",
+                        callback_data=f"hist_cmp_{uploads[0].id}_{uploads[1].id}",
+                    )
+                ]]),
+            )
 
 
-@marginator_router.callback_query(F.data.startswith("download_upload_") | F.data.startswith("hist_"))
+@marginator_router.callback_query(F.data.startswith("download_upload_"))
 async def download_archived_report(callback: CallbackQuery):
     try:
         await callback.answer("Готовлю Excel…")
@@ -85,3 +96,63 @@ async def download_archived_report(callback: CallbackQuery):
         )
     except Exception:
         await callback.message.answer("❌ Не удалось сформировать отчёт.")
+
+
+@marginator_router.callback_query(F.data.startswith("hist_cmp_"))
+async def history_compare_two(callback: CallbackQuery):
+    """Сравнить цены/маржу двух сохранённых расчётов по названию товара."""
+    await callback.answer("Сравниваю…")
+    try:
+        parts = (callback.data or "").replace("hist_cmp_", "").split("_")
+        id_a, id_b = int(parts[0]), int(parts[1])
+    except Exception:
+        await callback.message.answer("Некорректные ID.")
+        return
+    try:
+        import pandas as pd
+        from aiogram.types import BufferedInputFile
+        from services.marginator.exporter import ExcelExporterService
+        with SessionLocal() as db:
+            ua = MarginatorDBService.get_upload_with_items(db, id_a)
+            ub = MarginatorDBService.get_upload_with_items(db, id_b)
+            if not ua or not ub:
+                await callback.message.answer("Расчёт не найден.")
+                return
+            if ua.user and int(ua.user.telegram_id) != int(callback.from_user.id):
+                await callback.message.answer("Нет доступа.")
+                return
+            def to_df(u):
+                rows = []
+                for it in (u.items or []):
+                    rows.append({
+                        "Товар": (it.title or "").strip(),
+                        "Цена": float(it.est_sell_price or 0),
+                        "Маржа %": float(it.margin_pct or 0),
+                        "Прибыль": float(it.net_profit or 0),
+                    })
+                return pd.DataFrame(rows)
+            da, db_ = to_df(ua), to_df(ub)
+        if da.empty or db_.empty:
+            await callback.message.answer("В одном из расчётов нет позиций.")
+            return
+        merged = da.merge(db_, on="Товар", how="outer", suffixes=(" A", " B"))
+        merged["Дельта цена"] = merged.get("Цена B", 0).fillna(0) - merged.get("Цена A", 0).fillna(0)
+        merged["Дельта маржа %"] = merged.get("Маржа % B", 0).fillna(0) - merged.get("Маржа % A", 0).fillna(0)
+        excel = ExcelExporterService.export_results_to_excel(
+            merged.rename(columns={
+                "Цена A": "Выручка, ₽",  # reuse exporter expects some cols - better raw write
+            }) if False else merged
+        )
+        # simpler write
+        import io
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as w:
+            merged.to_excel(w, index=False, sheet_name="Сравнение")
+        buf.seek(0)
+        doc = BufferedInputFile(buf.read(), filename="history_compare.xlsx")
+        await callback.message.answer_document(
+            doc,
+            caption=f"Сравнение: {ua.filename} vs {ub.filename}",
+        )
+    except Exception as e:
+        await callback.message.answer(f"Ошибка сравнения: {type(e).__name__}: {e}")

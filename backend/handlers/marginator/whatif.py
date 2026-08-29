@@ -61,22 +61,29 @@ async def whatif_recalc(callback: CallbackQuery, state: FSMContext):
         await execute_calculation_core(callback.message, state, data, file_bytes, callback.from_user.id)
 
 
-@marginator_router.callback_query(F.data == "export_buy_list")
+@marginator_router.callback_query(F.data.startswith("buy_roi_") | (F.data == "export_buy_list"))
 async def export_buy_list_cb(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     path = data.get("last_results_path")
     if not path or not Path(path).is_file():
         await callback.answer("Нет последнего расчёта", show_alert=True)
         return
+    raw_cb = callback.data or "buy_roi_30"
+    try:
+        min_roi = float(raw_cb.replace("buy_roi_", "").replace("export_buy_list", "30"))
+    except ValueError:
+        min_roi = 30.0
     await callback.answer("Формирую список…")
     try:
         import pandas as pd
         from aiogram.types import BufferedInputFile
         from services.marginator.exporter import ExcelExporterService
         df = pd.read_csv(path)
-        raw = ExcelExporterService.export_buy_list(df, min_roi=30.0)
-        n = len(df[df["ROI %"] >= 30]) if "ROI %" in df.columns else len(df)
-        doc = BufferedInputFile(raw, filename="buy_list_roi30.xlsx")
-        await callback.message.answer_document(doc, caption=f"🛒 К закупке (ROI ≥ 30%): ~{n} позиций.")
+        raw = ExcelExporterService.export_buy_list(df, min_roi=min_roi)
+        n = len(df[df["ROI %"] >= min_roi]) if "ROI %" in df.columns else len(df)
+        doc = BufferedInputFile(raw, filename=f"buy_list_roi{int(min_roi)}.xlsx")
+        await callback.message.answer_document(
+            doc, caption=f"К закупке (ROI ≥ {min_roi:g}%): ~{n} позиций."
+        )
     except Exception:
         await callback.message.answer("Ошибка формирования списка.")

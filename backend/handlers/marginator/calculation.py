@@ -137,11 +137,11 @@ async def execute_calculation_core(message, state: FSMContext, data: dict, file_
 
     fx_rate = data.get("fx_rate", 1.0) or 1.0
 
-    results = []
+    skipped_rows = 0
     if calc_mode == "b2b":
-        results = await _calc_b2b(df, product_col, cost_col, sell_col, qty_col, data, fx_rate, status_msg)
+        results, skipped_rows = await _calc_b2b(df, product_col, cost_col, sell_col, qty_col, data, fx_rate, status_msg)
     else:
-        results = await _calc_marketplace(df, product_col, cost_col, sell_col, qty_col, data, fx_rate, status_msg)
+        results, skipped_rows = await _calc_marketplace(df, product_col, cost_col, sell_col, qty_col, data, fx_rate, status_msg)
 
     if not results:
         await status_msg.edit_text("❌ Не удалось рассчитать ни одной позиции. Проверьте, что в колонке цены есть числа > 0.")
@@ -175,6 +175,9 @@ async def execute_calculation_core(message, state: FSMContext, data: dict, file_
         AnalyticsService.generate_summary, df_results, file_name, risk_th
     )
     summary_text = AnalyticsService.format_summary_message(summary)
+    if skipped_rows:
+        summary_text += f"\n\n🗑 Пропущено пустых/без цены: `{skipped_rows}` строк."
+    await state.update_data(last_skipped_rows=skipped_rows)
     excel_bytes = await asyncio.to_thread(
         ExcelExporterService.export_results_to_excel, df_results, risk_th
     )
@@ -315,7 +318,7 @@ async def _calc_marketplace(df, product_col, cost_col, sell_col, qty_col, data, 
                     pass
         except Exception:
             continue
-    return results
+    return results, skipped
 
 
 async def _calc_b2b(df, product_col, cost_col, sell_col, qty_col, data, fx_rate, status_msg):
@@ -384,4 +387,4 @@ async def _calc_b2b(df, product_col, cost_col, sell_col, qty_col, data, fx_rate,
                     pass
         except Exception:
             continue
-    return results
+    return results, skipped
