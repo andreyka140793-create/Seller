@@ -61,12 +61,25 @@ class ExcelExporterService:
             ("Лист «Риск»", f"Позиции с маржинальностью < {risk_threshold:g}%"),
             ("Лист «Топ»", "Лучшие позиции по маржинальности"),
         ]
-        for r, (a, b) in enumerate(help_rows, 1):
+        # Title row
+        ws_help.insert_rows(1)
+        title = ws_help.cell(row=1, column=1, value="Marginator — отчёт юнит-экономики")
+        title.font = Font(name="Calibri", size=14, bold=True, color="064E3B")
+        ws_help.merge_cells(start_row=1, start_column=1, end_row=1, end_column=2)
+        ws_help.cell(row=2, column=1, value="Термин")
+        ws_help.cell(row=2, column=2, value="Что значит")
+        for r, (a, b) in enumerate(help_rows[1:], 3):  # skip old header pair
             ws_help.cell(row=r, column=1, value=a)
             ws_help.cell(row=r, column=2, value=b)
+        # header style
+        for col in (1, 2):
+            c = ws_help.cell(row=2, column=col)
+            c.fill = PatternFill(start_color="064E3B", end_color="064E3B", fill_type="solid")
+            c.font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
         ws_help.column_dimensions["A"].width = 28
         ws_help.column_dimensions["B"].width = 72
-        ws_help.freeze_panes = "A2"
+        ws_help.freeze_panes = "A3"
+        ws_help.row_dimensions[1].height = 22
 
 
         header_fill = PatternFill(start_color="064E3B", end_color="064E3B", fill_type="solid")
