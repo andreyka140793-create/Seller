@@ -22,6 +22,19 @@ def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+
+def get_help_keyboard() -> InlineKeyboardMarkup:
+    """Меню помощи: инструкция, термины, документы."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📘 Как пользоваться", callback_data="help_howto")],
+        [InlineKeyboardButton(text="📖 Термины (маржа, ROI)", callback_data="help_terms")],
+        [InlineKeyboardButton(text="🧪 Демо-прайс", callback_data="help_demo")],
+        [InlineKeyboardButton(text="🔒 Политика конфиденциальности", callback_data="help_privacy")],
+        [InlineKeyboardButton(text="📄 Пользовательское соглашение", callback_data="help_tos")],
+        [InlineKeyboardButton(text="✖️ Закрыть", callback_data="help_close")],
+    ])
+
+
 def get_mode_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
