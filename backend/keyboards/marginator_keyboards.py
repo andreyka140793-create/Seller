@@ -25,9 +25,9 @@ def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
 def get_mode_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Маркетплейс", callback_data="mode_marketplace")],
-            [InlineKeyboardButton(text="B2B", callback_data="mode_b2b")],
-            [InlineKeyboardButton(text="Сравнить 2 прайса", callback_data="mode_compare")],
+            [InlineKeyboardButton(text="🛒 Маркетплейс", callback_data="mode_marketplace")],
+            [InlineKeyboardButton(text="🏢 B2B", callback_data="mode_b2b")],
+            [InlineKeyboardButton(text="⚖️ Сравнить 2 прайса", callback_data="mode_compare")],
         ]
     )
 
@@ -148,16 +148,16 @@ def get_run_keyboard() -> InlineKeyboardMarkup:
 def get_whatif_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="Комиссия −2%", callback_data="whatif_comm_-2"),
-            InlineKeyboardButton(text="Комиссия +2%", callback_data="whatif_comm_+2"),
+            InlineKeyboardButton(text="📉 Комиссия −2%", callback_data="whatif_comm_-2"),
+            InlineKeyboardButton(text="📈 Комиссия +2%", callback_data="whatif_comm_+2"),
         ],
         [
-            InlineKeyboardButton(text="Логистика −20₽", callback_data="whatif_log_-20"),
-            InlineKeyboardButton(text="Логистика +20₽", callback_data="whatif_log_+20"),
+            InlineKeyboardButton(text="📦 Логистика −20₽", callback_data="whatif_log_-20"),
+            InlineKeyboardButton(text="📦 Логистика +20₽", callback_data="whatif_log_+20"),
         ],
         [
-            InlineKeyboardButton(text="Налог −1%", callback_data="whatif_tax_-1"),
-            InlineKeyboardButton(text="Налог +1%", callback_data="whatif_tax_+1"),
+            InlineKeyboardButton(text="🧾 Налог −1%", callback_data="whatif_tax_-1"),
+            InlineKeyboardButton(text="🧾 Налог +1%", callback_data="whatif_tax_+1"),
         ],
         [InlineKeyboardButton(text="🔄 Новый расчёт", callback_data="new_calc")],
     ])
@@ -186,16 +186,16 @@ def get_after_report_keyboard(webapp_url: str | None = None) -> InlineKeyboardMa
     rows = [
         [InlineKeyboardButton(text="📎 Новый файл с теми же параметрами", callback_data="same_params_new")],
         [
-            InlineKeyboardButton(text="Комиссия −2%", callback_data="whatif_comm_-2"),
-            InlineKeyboardButton(text="Комиссия +2%", callback_data="whatif_comm_+2"),
+            InlineKeyboardButton(text="📉 Комиссия −2%", callback_data="whatif_comm_-2"),
+            InlineKeyboardButton(text="📈 Комиссия +2%", callback_data="whatif_comm_+2"),
         ],
         [
-            InlineKeyboardButton(text="Логистика −20₽", callback_data="whatif_log_-20"),
-            InlineKeyboardButton(text="Логистика +20₽", callback_data="whatif_log_+20"),
+            InlineKeyboardButton(text="📦 Логистика −20₽", callback_data="whatif_log_-20"),
+            InlineKeyboardButton(text="📦 Логистика +20₽", callback_data="whatif_log_+20"),
         ],
         [
-            InlineKeyboardButton(text="Налог −1%", callback_data="whatif_tax_-1"),
-            InlineKeyboardButton(text="Налог +1%", callback_data="whatif_tax_+1"),
+            InlineKeyboardButton(text="🧾 Налог −1%", callback_data="whatif_tax_-1"),
+            InlineKeyboardButton(text="🧾 Налог +1%", callback_data="whatif_tax_+1"),
         ],
         [InlineKeyboardButton(text="🛒 К закупке ROI≥20%", callback_data="buy_roi_20"),
          InlineKeyboardButton(text="ROI≥30%", callback_data="buy_roi_30"),
