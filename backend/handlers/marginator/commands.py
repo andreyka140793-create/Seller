@@ -26,7 +26,7 @@ def _cleanup_temp_file(path: str | None) -> None:
 
 
 async def _clear_state_and_cleanup(state: FSMContext) -> None:
-    """Сброс FSM + удаление текущего файла и всей очереди с диска."""
+    """Сброс FSM + temp-файлы."""
     data = await state.get_data()
     _cleanup_temp_file(data.get("file_path"))
     for item in data.get("file_queue") or []:
@@ -39,9 +39,15 @@ async def _clear_state_and_cleanup(state: FSMContext) -> None:
 async def cmd_start(message: Message, state: FSMContext):
     await _clear_state_and_cleanup(state)
     await message.answer(
-        "Привет! Я Marginator — юнит-экономика по прайсу.\n\n"
-        "Отправьте прайс или «Новый расчёт».\n"
-        "Термины: /terms",
+        "\n".join([
+            "Marginator — маржа по прайсу за 3 шага.",
+            "",
+            "1) Демо или свой файл",
+            "2) Параметры (или «Последние»)",
+            "3) Рассчитать → Excel + мини-приложение",
+            "",
+            "/help · /terms · /demo",
+        ]),
         reply_markup=get_main_reply_keyboard(),
     )
 
@@ -50,24 +56,19 @@ async def cmd_start(message: Message, state: FSMContext):
 async def cmd_help(message: Message):
     await message.answer(
         "\n".join([
-            "Marginator — помощь",
+            "Marginator — кратко",
             "",
-            "Команды:",
-            "/start — начать",
-            "/help — эта справка",
-            "/history — история расчётов",
+            "3 шага: файл → параметры → Рассчитать",
+            "Демо: «Демо-прайс» или /demo",
+            "",
+            "/start — начало",
+            "/demo — пример прайса",
             "/terms — маржа, наценка, ROI",
-            "/cancel — отменить",
+            "/history — прошлые расчёты",
+            "/cancel — отмена",
             "",
-            "Как пользоваться:",
-            "1. Новый расчёт",
-            "2. Режим Маркетплейс / B2B",
-            "3. Файл прайса",
-            "4. Проверка колонок",
-            "5. Параметры и Рассчитать",
-            "",
-            "Форматы: Excel, CSV, YML/XML, PDF, Word, JSON, фото, ZIP",
-            "В Excel первый лист — Справка по терминам.",
+            "Excel: Справка / Все / Риск / Топ",
+            "Мини-приложение: фильтры риск и ROI",
         ])
     )
 
@@ -93,13 +94,13 @@ async def cmd_cancel(message: Message, state: FSMContext):
         if isinstance(item, dict):
             _cleanup_temp_file(item.get("path"))
     await state.clear()
-    await message.answer("Действие отменено.", reply_markup=get_main_reply_keyboard())
+    await message.answer("Отменено.", reply_markup=get_main_reply_keyboard())
 
 
 @marginator_router.message(F.text == "🔄 Новый расчёт")
 async def btn_new_calc(message: Message, state: FSMContext):
     await _clear_state_and_cleanup(state)
-    await message.answer("Выберите режим расчёта:", reply_markup=get_mode_keyboard())
+    await message.answer("Режим расчёта:", reply_markup=get_mode_keyboard())
     await state.set_state(CalcState.select_mode)
 
 
@@ -123,7 +124,7 @@ async def btn_cancel(message: Message, state: FSMContext):
 async def cb_new_calc(callback, state: FSMContext):
     await callback.answer()
     await _clear_state_and_cleanup(state)
-    await callback.message.answer("Выберите режим расчёта:", reply_markup=get_mode_keyboard())
+    await callback.message.answer("Режим расчёта:", reply_markup=get_mode_keyboard())
     await state.set_state(CalcState.select_mode)
 
 
@@ -134,12 +135,10 @@ async def cb_cancel_flow(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("Отменено.", reply_markup=get_main_reply_keyboard())
 
 
-
-
 @marginator_router.message(F.text.in_({"🧪 Демо-прайс", "Демо-прайс", "/demo"}))
 @marginator_router.message(Command("demo"))
 async def cmd_demo(message: Message, state: FSMContext):
-    """Короткий онбординг: демо-файл + сразу режим маркетплейса."""
+    """Онбординг: демо-файл → выбор режима."""
     await _clear_state_and_cleanup(state)
     import io
     import pandas as pd
@@ -150,19 +149,15 @@ async def cmd_demo(message: Message, state: FSMContext):
         {"Наименование": "Перфоратор DeWalt D25133K", "Артикул": "ART-1003", "Цена": 8990, "Остаток": 5},
         {"Наименование": "Уровень лазерный Huepar", "Артикул": "ART-1004", "Цена": 4150, "Остаток": 20},
         {"Наименование": "Набор бит 50 шт", "Артикул": "ART-1005", "Цена": 890, "Остаток": 100},
-        {"Наименование": "Товар без цены (будет пропущен)", "Артикул": "ART-X", "Цена": 0, "Остаток": 1},
+        {"Наименование": "Строка без цены (пропуск)", "Артикул": "ART-X", "Цена": 0, "Остаток": 1},
     ]
     buf = io.BytesIO()
     pd.DataFrame(rows).to_excel(buf, index=False, engine="openpyxl")
     buf.seek(0)
     doc = BufferedInputFile(buf.read(), filename="demo_price.xlsx")
-    await message.answer(
-        "Демо-прайс: 5 товаров + 1 пустая цена (её бот пропустит).\n"
-        "Дальше: режим → параметры → Рассчитать.\n"
-        "Или просто перешлите этот файл боту после выбора режима."
-    )
+    await message.answer("Демо: 5 товаров. Дальше — режим → параметры → Рассчитать.")
     await message.answer_document(doc, caption="demo_price.xlsx")
-    await message.answer("Выберите режим:", reply_markup=get_mode_keyboard())
+    await message.answer("Шаг 1/3 — режим:", reply_markup=get_mode_keyboard())
     await state.set_state(CalcState.select_mode)
 
 
@@ -170,8 +165,8 @@ async def cmd_demo(message: Message, state: FSMContext):
 async def select_mode_marketplace(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.update_data(calc_mode="marketplace")
-    await callback.message.edit_text("Режим: Маркетплейс (WB / Ozon)")
-    await callback.message.answer("Отправьте файл прайса:")
+    await callback.message.edit_text("Маркетплейс")
+    await callback.message.answer("Шаг 1/3 — пришлите прайс:")
     await state.set_state(CalcState.upload_file)
 
 
@@ -179,8 +174,8 @@ async def select_mode_marketplace(callback: CallbackQuery, state: FSMContext):
 async def select_mode_b2b(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.update_data(calc_mode="b2b")
-    await callback.message.edit_text("Режим: B2B (опт / НДС)")
-    await callback.message.answer("Отправьте файл прайса:")
+    await callback.message.edit_text("B2B")
+    await callback.message.answer("Шаг 1/3 — пришлите прайс:")
     await state.set_state(CalcState.upload_file)
 
 
@@ -188,6 +183,7 @@ async def select_mode_b2b(callback: CallbackQuery, state: FSMContext):
 async def select_mode_compare(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.update_data(calc_mode="compare")
-    await callback.message.edit_text("Режим: Сравнение 2 прайсов")
-    await callback.message.answer("Отправьте первый прайс (A):")
+    await callback.message.edit_text("Сравнение")
+    await callback.message.answer("Прайс A:")
     await state.set_state(CalcState.compare_upload_a)
+

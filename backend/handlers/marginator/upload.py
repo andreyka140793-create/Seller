@@ -210,7 +210,7 @@ async def process_price_file(
             else ""
         )
         await status_msg.edit_text(
-            f"✅ **Структура определена!** (`{file_name}`)\n\n"
+            f"✅ Шаг 2/3 — колонки (`{file_name}`)\n\n"
             f"• Строка шапки: `{mapping.header_row_index + 1}`\n"
             f"• Колонка товара: `{mapping.product_name_col}`\n"
             f"• Колонка себестоимости: `{mapping.cost_price_col}`{sell_info}"
