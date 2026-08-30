@@ -26,3 +26,7 @@ class CalcState(StatesGroup):
 
 class AdminState(StatesGroup):
     broadcast_text = State()
+
+
+class SupportState(StatesGroup):
+    waiting_message = State()
