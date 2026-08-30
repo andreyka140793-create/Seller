@@ -304,3 +304,29 @@ class MarginatorDBService:
         blocked = db.query(models.User).filter(models.User.is_blocked.is_(True)).count()
         rated = db.query(models.User).filter(models.User.last_rating.isnot(None)).count()
         return {"total": total, "active": active, "blocked": blocked, "rated": rated}
+
+
+    @staticmethod
+    def rating_stats(db: Session) -> dict:
+        """Средняя оценка, число голосов, распределение 1..10."""
+        rows = (
+            db.query(models.User.last_rating)
+            .filter(models.User.last_rating.isnot(None))
+            .all()
+        )
+        scores = [int(r[0]) for r in rows if r[0] is not None]
+        dist = {i: 0 for i in range(1, 11)}
+        for s in scores:
+            if 1 <= s <= 10:
+                dist[s] += 1
+        avg = round(sum(scores) / len(scores), 2) if scores else 0.0
+        return {"avg": avg, "count": len(scores), "dist": dist}
+
+    @staticmethod
+    def list_recent_users(db: Session, limit: int = 50) -> list:
+        return (
+            db.query(models.User)
+            .order_by(models.User.created_at.desc())
+            .limit(limit)
+            .all()
+        )
