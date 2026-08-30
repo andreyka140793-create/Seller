@@ -10,7 +10,12 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     telegram_id = Column(BigInteger, unique=True, index=True, nullable=False)
+    username = Column(String(128), nullable=True)
+    full_name = Column(String(256), nullable=True)
+    is_blocked = Column(Boolean, default=False)  # пользователь остановил/заблокировал бота
+    last_rating = Column(Integer, nullable=True)  # 1..10
     created_at = Column(DateTime, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, default=datetime.utcnow)
 
     uploads = relationship("PriceUpload", back_populates="user", cascade="all, delete-orphan")
     presets = relationship("UserPreset", back_populates="user", cascade="all, delete-orphan")

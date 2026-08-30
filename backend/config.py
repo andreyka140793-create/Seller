@@ -19,3 +19,14 @@ class PurchasingConfig:
 
     # Tax modes
     TAX_MODE: Literal["usn_6", "usn_15", "osno_20"] = os.getenv("TAX_MODE", "usn_6")
+
+
+def get_admin_ids() -> set[int]:
+    """ID админов из ADMIN_TELEGRAM_IDS (через запятую) или ADMIN_TELEGRAM_ID."""
+    raw = os.getenv("ADMIN_TELEGRAM_IDS") or os.getenv("ADMIN_TELEGRAM_ID") or ""
+    ids: set[int] = set()
+    for part in raw.replace(";", ",").split(","):
+        part = part.strip()
+        if part.isdigit():
+            ids.add(int(part))
+    return ids

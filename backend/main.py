@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from database import engine, Base, get_db
 import models
 from config import PurchasingConfig
-from bot import get_bot_and_dp
+from bot import get_bot_and_dp, setup_bot_profile
 from handlers.marginator import marginator_router  # triggers __init__ -> registers all handlers
 from services.marginator.auth import verify_telegram_init_data
 
@@ -47,10 +47,28 @@ async def get_current_tg_user(x_telegram_init_data: str = Header(None)) -> dict:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    # мягкая миграция новых колонок users
+    try:
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            for stmt in (
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(128)",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(256)",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_rating INTEGER",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP",
+            ):
+                try:
+                    conn.execute(text(stmt))
+                except Exception:
+                    pass
+    except Exception:
+        pass
     bot, dp = get_bot_and_dp()
     bot_task = None
     if bot and dp:
         dp.include_router(marginator_router)
+        await setup_bot_profile(bot)
         bot_task = asyncio.create_task(dp.start_polling(bot))
         print("🤖 Telegram bot started")
     yield
@@ -276,9 +294,21 @@ async def get_upload_details_api(
     except (TypeError, ValueError):
         raise HTTPException(401, "Invalid user id")
 
-    owner_tid = upload.user.telegram_id if upload.user else None
-    if owner_tid != requester_id:
-        raise HTTPException(403, "Access denied")
+    owner = upload.user
+    if owner is None and upload.user_id:
+        owner = db.query(models.User).filter(models.User.id == upload.user_id).first()
+    try:
+        owner_tid = int(owner.telegram_id) if owner is not None else None
+    except (TypeError, ValueError):
+        owner_tid = None
+    if owner_tid is None or owner_tid != int(requester_id):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Access denied (db_user={owner_tid}, tg_user={requester_id}). "
+                "Сделайте новый расчёт после обновления бота."
+            ),
+        )
 
     return {
         "id": upload.id,
