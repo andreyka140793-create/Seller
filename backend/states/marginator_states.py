@@ -22,3 +22,7 @@ class CalcState(StatesGroup):
     save_preset_name = State()
     compare_upload_a = State()
     compare_upload_b = State()
+
+
+class AdminState(StatesGroup):
+    broadcast_text = State()
