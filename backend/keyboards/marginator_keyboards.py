@@ -14,7 +14,7 @@ def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🔄 Новый расчёт"), KeyboardButton(text="🧪 Демо-прайс"), KeyboardButton(text="📂 История")],
-            [KeyboardButton(text="📖 Помощь"), KeyboardButton(text="📖 Термины"), KeyboardButton(text="❌ Отмена")],
+            [KeyboardButton(text="📖 Помощь"), KeyboardButton(text="💬 Поддержка"), KeyboardButton(text="❌ Отмена")],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -65,6 +65,7 @@ def get_help_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🧪 Демо-прайс", callback_data="help_demo")],
         [InlineKeyboardButton(text="🔒 Политика конфиденциальности", callback_data="help_privacy")],
         [InlineKeyboardButton(text="📄 Пользовательское соглашение", callback_data="help_tos")],
+        [InlineKeyboardButton(text="💬 Поддержка", callback_data="help_support")],
         [InlineKeyboardButton(text="✖️ Закрыть", callback_data="help_close")],
     ])
 
