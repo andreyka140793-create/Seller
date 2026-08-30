@@ -39,18 +39,46 @@ async def _clear_state_and_cleanup(state: FSMContext) -> None:
 @marginator_router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     await _clear_state_and_cleanup(state)
-    await message.answer(
-        "\n".join([
-            "Маржинатор — маржа по прайсу за 3 шага.",
-            "",
-            "1) Демо или свой файл",
-            "2) Параметры (или «Последние»)",
-            "3) Рассчитать → Excel + мини-приложение",
-            "",
-            "/help · /terms · /demo",
-        ]),
-        reply_markup=get_main_reply_keyboard(),
-    )
+    user = message.from_user
+    is_new_flag: list = []
+    if user:
+        try:
+            with SessionLocal() as db:
+                MarginatorDBService.touch_user(
+                    db,
+                    user.id,
+                    username=user.username,
+                    full_name=user.full_name,
+                    is_new_out=is_new_flag,
+                )
+        except Exception:
+            pass
+        try:
+            from handlers.marginator.admin import notify_admins
+            uname = ("@" + user.username) if user.username else (user.full_name or str(user.id))
+            if is_new_flag and is_new_flag[0]:
+                await notify_admins(
+                    message.bot,
+                    "🆕 Новый пользователь Маржинатора\n" + uname + " (" + str(user.id) + ")",
+                )
+        except Exception:
+            pass
+    text = "\n".join([
+        "Маржинатор — маржа по прайсу за 3 шага.",
+        "",
+        "1) Демо или свой файл",
+        "2) Параметры (или «Последние»)",
+        "3) Рассчитать → Excel + мини-приложение",
+        "",
+        "/help · /terms · /demo",
+    ])
+    try:
+        from handlers.marginator.admin import is_admin
+        if user and is_admin(user.id):
+            text += "\n\n🛠 Вам доступна /admin"
+    except Exception:
+        pass
+    await message.answer(text, reply_markup=get_main_reply_keyboard())
 
 
 @marginator_router.message(Command("help"))

@@ -10,5 +10,6 @@ from handlers.marginator import whatif
 from handlers.marginator import compare
 from handlers.marginator import history
 from handlers.marginator import fx
+from handlers.marginator import admin
 
 __all__ = ["marginator_router"]
