@@ -18,7 +18,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.enums import ChatMemberStatus
 
 from handlers.marginator.router import marginator_router
-from states.marginator_states import AdminState
+from states.marginator_states import AdminState, SupportState
 from keyboards.marginator_keyboards import (
     get_admin_keyboard,
     get_admin_broadcast_keyboard,
@@ -381,3 +381,80 @@ async def on_my_chat_member(event: ChatMemberUpdated):
             event.bot,
             "✅ Пользователь снова запустил бота:\n%s (%s)" % (uname, user.id),
         )
+
+
+
+@marginator_router.message(F.text.in_({"💬 Поддержка", "Поддержка", "/support"}))
+@marginator_router.message(Command("support"))
+async def cmd_support(message: Message, state: FSMContext):
+    """Пользователь пишет в поддержку — сообщение уходит админам."""
+    await state.set_state(SupportState.waiting_message)
+    await message.answer(
+        "\n".join([
+            "💬 Поддержка Маржинатора",
+            "",
+            "Опишите вопрос или проблему одним сообщением.",
+            "Можно приложить скриншот или файл.",
+            "",
+            "Отмена: /cancel или «❌ Отмена»",
+        ])
+    )
+
+
+@marginator_router.message(SupportState.waiting_message, F.text.in_({"❌ Отмена", "/cancel", "Отмена"}))
+async def support_cancel(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Отменено.", reply_markup=get_main_reply_keyboard())
+
+
+@marginator_router.message(SupportState.waiting_message)
+async def support_receive(message: Message, state: FSMContext):
+    await state.clear()
+    user = message.from_user
+    uid = user.id if user else 0
+    uname = ("@" + user.username) if user and user.username else ""
+    name = (user.full_name if user else "") or ""
+    who = "%s %s (%s)" % (name, uname, uid)
+
+    header = "🆘 Обращение в поддержку\nот %s" % who.strip()
+    admins = get_admin_ids()
+    if not admins:
+        await message.answer(
+            "Сейчас поддержка недоступна (не настроен ADMIN_TELEGRAM_ID). "
+            "Попробуйте позже.",
+            reply_markup=get_main_reply_keyboard(),
+        )
+        return
+
+    delivered = 0
+    for aid in admins:
+        try:
+            await message.bot.send_message(aid, header)
+            # пересылаем оригинал (текст/фото/документ)
+            await message.forward(aid)
+            delivered += 1
+        except Exception as e:
+            logger.warning("support forward to %s failed: %s", aid, e)
+            try:
+                # fallback: copy text
+                body = message.text or message.caption or "(вложение без текста)"
+                await message.bot.send_message(aid, header + "\n\n" + body)
+                if message.photo:
+                    await message.bot.send_photo(aid, message.photo[-1].file_id)
+                elif message.document:
+                    await message.bot.send_document(aid, message.document.file_id)
+                delivered += 1
+            except Exception as e2:
+                logger.warning("support fallback failed: %s", e2)
+
+    if delivered:
+        await message.answer(
+            "Сообщение отправлено в поддержку. Ответим, как сможем.",
+            reply_markup=get_main_reply_keyboard(),
+        )
+    else:
+        await message.answer(
+            "Не удалось доставить сообщение. Попробуйте позже или напишите ещё раз.",
+            reply_markup=get_main_reply_keyboard(),
+        )
+

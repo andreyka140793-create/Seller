@@ -202,6 +202,14 @@ async def help_tos(callback: CallbackQuery):
         await callback.message.answer(part, **kw)
 
 
+
+@marginator_router.callback_query(F.data == "help_support")
+async def help_support_cb(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    from handlers.marginator.admin import cmd_support
+    await cmd_support(callback.message, state)
+
+
 @marginator_router.callback_query(F.data == "help_close")
 async def help_close(callback: CallbackQuery):
     await callback.answer("Закрыто")
