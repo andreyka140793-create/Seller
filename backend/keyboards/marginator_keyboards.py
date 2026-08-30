@@ -23,6 +23,14 @@ def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
 
 
 
+def get_admin_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
+        [InlineKeyboardButton(text="⭐ Оценка (опрос 1–10)", callback_data="admin_rating")],
+        [InlineKeyboardButton(text="🔄 Обновить статистику", callback_data="admin_panel")],
+    ])
+
+
 def get_help_keyboard() -> InlineKeyboardMarkup:
     """Меню помощи: инструкция, термины, документы."""
     return InlineKeyboardMarkup(inline_keyboard=[
