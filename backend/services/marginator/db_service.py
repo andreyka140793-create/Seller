@@ -124,6 +124,62 @@ class MarginatorDBService:
             .all()
         )
 
+
+    LAST_PARAMS_NAME = "⭐ Последние"
+
+    @staticmethod
+    def save_last_params(db: Session, telegram_id: int, data: dict) -> models.UserPreset:
+        """Обновить или создать пресет «Последние» — параметры прошлого расчёта."""
+        user = MarginatorDBService.get_or_create_user(db, telegram_id)
+        preset = (
+            db.query(models.UserPreset)
+            .filter(
+                models.UserPreset.user_id == user.id,
+                models.UserPreset.name == MarginatorDBService.LAST_PARAMS_NAME,
+            )
+            .first()
+        )
+        fields = dict(
+            calc_mode=data.get("calc_mode", "marketplace"),
+            commission_percent=float(data.get("commission_percent", 15) or 15),
+            logistics_cost=float(data.get("logistics_cost", 120) or 120),
+            packaging_cost=float(data.get("packaging_cost", 30) or 30),
+            tax_rate_percent=float(data.get("tax_rate_percent", 6) or 6),
+            tax_mode=data.get("tax_mode", "usn_6"),
+            freight_cost=float(data.get("freight_cost", 0) or 0),
+            manager_bonus_percent=float(data.get("manager_bonus_percent", 0) or 0),
+            is_vat_included=bool(data.get("is_vat_included", True)),
+            vat_rate_percent=float(data.get("vat_rate_percent", 20) or 20),
+            target_margin_percent=(
+                float(data["target_margin_percent"])
+                if data.get("target_margin_percent") is not None
+                else None
+            ),
+        )
+        if preset is None:
+            preset = models.UserPreset(user_id=user.id, name=MarginatorDBService.LAST_PARAMS_NAME, **fields)
+            db.add(preset)
+        else:
+            for k, v in fields.items():
+                setattr(preset, k, v)
+        db.commit()
+        db.refresh(preset)
+        return preset
+
+    @staticmethod
+    def get_last_params(db: Session, telegram_id: int) -> models.UserPreset | None:
+        user = db.query(models.User).filter(models.User.telegram_id == int(telegram_id)).first()
+        if not user:
+            return None
+        return (
+            db.query(models.UserPreset)
+            .filter(
+                models.UserPreset.user_id == user.id,
+                models.UserPreset.name == MarginatorDBService.LAST_PARAMS_NAME,
+            )
+            .first()
+        )
+
     @staticmethod
     def save_preset(db: Session, telegram_id: int, name: str, data: dict) -> models.UserPreset:
         user = MarginatorDBService.get_or_create_user(db, telegram_id)
@@ -180,3 +236,71 @@ class MarginatorDBService:
         db.delete(preset)
         db.commit()
         return True
+
+
+    @staticmethod
+    def touch_user(
+        db: Session,
+        telegram_id: int,
+        *,
+        username: str | None = None,
+        full_name: str | None = None,
+        is_new_out: list | None = None,
+    ) -> models.User:
+        """Создать/обновить пользователя. is_new_out.append(True) если новый."""
+        from datetime import datetime
+        user = db.query(models.User).filter(models.User.telegram_id == int(telegram_id)).first()
+        is_new = user is None
+        if is_new:
+            user = models.User(telegram_id=int(telegram_id))
+            db.add(user)
+        user.is_blocked = False
+        user.last_seen_at = datetime.utcnow()
+        if username is not None:
+            user.username = (username or "")[:128] or None
+        if full_name is not None:
+            user.full_name = (full_name or "")[:256] or None
+        db.commit()
+        db.refresh(user)
+        if is_new_out is not None:
+            is_new_out.append(is_new)
+        return user
+
+    @staticmethod
+    def mark_user_blocked(db: Session, telegram_id: int) -> bool:
+        from datetime import datetime
+        user = db.query(models.User).filter(models.User.telegram_id == int(telegram_id)).first()
+        if not user:
+            return False
+        user.is_blocked = True
+        user.last_seen_at = datetime.utcnow()
+        db.commit()
+        return True
+
+    @staticmethod
+    def list_broadcast_ids(db: Session) -> list[int]:
+        rows = (
+            db.query(models.User.telegram_id)
+            .filter(models.User.is_blocked.is_(False))
+            .all()
+        )
+        return [int(r[0]) for r in rows]
+
+    @staticmethod
+    def set_user_rating(db: Session, telegram_id: int, score: int) -> None:
+        from datetime import datetime
+        user = db.query(models.User).filter(models.User.telegram_id == int(telegram_id)).first()
+        if not user:
+            user = models.User(telegram_id=int(telegram_id))
+            db.add(user)
+        user.last_rating = int(score)
+        user.last_seen_at = datetime.utcnow()
+        db.commit()
+
+    @staticmethod
+    def user_stats(db: Session) -> dict:
+        total = db.query(models.User).count()
+        active = db.query(models.User).filter(models.User.is_blocked.is_(False)).count()
+        blocked = db.query(models.User).filter(models.User.is_blocked.is_(True)).count()
+        rated = db.query(models.User).filter(models.User.last_rating.isnot(None)).count()
+        return {"total": total, "active": active, "blocked": blocked, "rated": rated}
