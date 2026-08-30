@@ -24,11 +24,37 @@ def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
 
 
 def get_admin_keyboard() -> InlineKeyboardMarkup:
+    """Панель разработчика (как у mature-ботов: сводка / юзеры / оценки / рассылка)."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
-        [InlineKeyboardButton(text="⭐ Оценка (опрос 1–10)", callback_data="admin_rating")],
-        [InlineKeyboardButton(text="🔄 Обновить статистику", callback_data="admin_panel")],
+        [
+            InlineKeyboardButton(text="📊 Сводка", callback_data="adm_summary"),
+            InlineKeyboardButton(text="👥 Юзеры", callback_data="adm_users"),
+        ],
+        [
+            InlineKeyboardButton(text="⭐ Оценки", callback_data="adm_ratings"),
+        ],
+        [
+            InlineKeyboardButton(text="📣 Рассылка ›", callback_data="adm_broadcast_menu"),
+        ],
+        [
+            InlineKeyboardButton(text="‹ В меню", callback_data="adm_close"),
+        ],
     ])
+
+
+def get_admin_broadcast_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✉️ Всем в ЛС", callback_data="admin_broadcast")],
+        [InlineKeyboardButton(text="⭐ Запросить оценку (всем в ЛС)", callback_data="admin_rating")],
+        [InlineKeyboardButton(text="‹ Назад", callback_data="adm_summary")],
+    ])
+
+
+def get_admin_back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="‹ Панель", callback_data="adm_summary")],
+    ])
+
 
 
 def get_help_keyboard() -> InlineKeyboardMarkup:
