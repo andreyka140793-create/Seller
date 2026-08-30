@@ -14,7 +14,12 @@ from sqlalchemy.orm import Session
 from database import engine, Base, get_db
 import models
 from config import PurchasingConfig
-from bot import get_bot_and_dp, setup_bot_profile
+from bot import get_bot_and_dp
+try:
+    from bot import setup_bot_profile
+except ImportError:
+    async def setup_bot_profile(bot):
+        return None
 from handlers.marginator import marginator_router  # triggers __init__ -> registers all handlers
 from services.marginator.auth import verify_telegram_init_data
 
